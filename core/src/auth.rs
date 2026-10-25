@@ -573,12 +573,18 @@ async fn parse_response<T: serde::de::DeserializeOwned>(
 ) -> CoreResult<T> {
     let status = response.status();
     if !status.is_success() {
+        let detail = upstream_detail(&response.text().await.unwrap_or_default());
         let message = match (provider, status.as_u16()) {
             ("minecraft_profile", 404) => "this account does not have a Minecraft profile".into(),
             ("xsts", 401) => {
                 "Xbox authorization was rejected; check the account and Xbox profile".into()
             }
-            _ => format!("authentication service returned HTTP {}", status.as_u16()),
+            _ => match detail {
+                Some(detail) => {
+                    format!("{provider} returned HTTP {}: {detail}", status.as_u16())
+                }
+                None => format!("{provider} returned HTTP {}", status.as_u16()),
+            },
         };
         return Err(CoreError::Authentication(message));
     }
@@ -587,6 +593,29 @@ async fn parse_response<T: serde::de::DeserializeOwned>(
             "{provider} returned invalid authentication metadata"
         ))
     })
+}
+
+fn upstream_detail(body: &str) -> Option<String> {
+    let value: Value = serde_json::from_str(body).ok()?;
+    let mut parts = Vec::new();
+    for key in ["Message", "error_description", "error", "message"] {
+        if let Some(text) = value.get(key).and_then(Value::as_str) {
+            parts.push(text.to_owned());
+            break;
+        }
+    }
+    if let Some(code) = value.get("XErr").and_then(Value::as_i64) {
+        parts.push(format!("XErr {code}"));
+    }
+    if let Some(code) = value.get("code").and_then(Value::as_str) {
+        parts.push(format!("code {code}"));
+    }
+    let detail = parts.join("; ");
+    if detail.is_empty() {
+        None
+    } else {
+        Some(detail.chars().take(300).collect())
+    }
 }
 
 fn xbox_user_hash(response: &XboxResponse) -> CoreResult<String> {
@@ -671,5 +700,20 @@ mod tests {
     #[test]
     fn debug_build_exposes_the_expected_capability() {
         assert_eq!(crate::DEBUG_AUTH, cfg!(feature = "debug"));
+    }
+
+    #[test]
+    fn upstream_detail_extracts_safe_fields() {
+        assert_eq!(
+            upstream_detail(r#"{"Message":"Request is blocked","XErr":2148916233}"#).as_deref(),
+            Some("Request is blocked; XErr 2148916233")
+        );
+        assert_eq!(
+            upstream_detail(r#"{"error":"invalid_grant","error_description":"Expired"}"#)
+                .as_deref(),
+            Some("Expired; code invalid_grant")
+        );
+        assert_eq!(upstream_detail("not json"), None);
+        assert_eq!(upstream_detail("{}"), None);
     }
 }

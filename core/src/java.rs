@@ -14,7 +14,7 @@ use crate::download::{DownloadSpec, Downloader};
 use crate::error::{CoreError, CoreResult};
 use crate::job::JobContext;
 use crate::model::JobProgress;
-use crate::paths::{safe_join, safe_relative_path, AppPaths};
+use crate::paths::{safe_join, safe_relative_path};
 use crate::version::{JavaRequirement, RemoteFile};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -22,11 +22,15 @@ Rust 1.85 or newer is required:
 cargo build --release
 ```
 
-The binary is at `target/release/mzlauncher-core`.
+The binaries are at `target/release/mzlauncher-gui` and `target/release/mzlauncher-core`.
 
 ### Run
 
-core communicates with gui over stdin/stdout and is not used as a command line tool directly. Once gui starts and connects to the core process, all features are available. Any program that can read and write stdio can also drive core through the protocol.
+Start `mzlauncher-gui`. It launches the core process automatically, finding it next to the gui executable, on `PATH`, or at the path in the `MZLAUNCHER_CORE_PATH` environment variable.
+
+In the gui you can then log in with a Microsoft account, create an instance or import a modpack, wait for installation to finish in the job center, and launch the game.
+
+core communicates with gui over stdin/stdout and is not used as a command line tool directly. Any program that can read and write stdio can also drive core through the protocol.
 
 ## License
 

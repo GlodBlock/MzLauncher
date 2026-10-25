@@ -12,25 +12,44 @@ async fn main() -> anyhow::Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
+    let mut data_dir = None;
     let mut args = std::env::args_os().skip(1);
-    let data_dir = match (args.next(), args.next()) {
-        (Some(flag), Some(path)) if flag == "--data-dir" => Some(PathBuf::from(path)),
-        (None, None) => None,
-        (Some(flag), None) if flag == "--version" => {
+    while let Some(arg) = args.next() {
+        if arg == "--data-dir" {
+            let Some(path) = args.next() else {
+                usage();
+            };
+            data_dir = Some(PathBuf::from(path));
+        } else if arg == "--silent" {
+            hide_console();
+        } else if arg == "--version" {
             eprintln!("mzlauncher-core {CORE_VERSION}");
             return Ok(());
+        } else {
+            usage();
         }
-        _ => {
-            eprintln!("usage: mzlauncher-core [--data-dir <path>] | [--version]");
-            std::process::exit(2);
-        }
-    };
-
-    if args.next().is_some() {
-        eprintln!("usage: mzlauncher-core [--data-dir <path>] | [--version]");
-        std::process::exit(2);
     }
 
     Server::new(data_dir)?.run().await?;
     Ok(())
 }
+
+fn usage() -> ! {
+    eprintln!("usage: mzlauncher-core [--data-dir <path>] [--silent] | [--version]");
+    std::process::exit(2);
+}
+
+#[cfg(windows)]
+fn hide_console() {
+    use windows_sys::Win32::System::Console::GetConsoleWindow;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+    unsafe {
+        let window = GetConsoleWindow();
+        if !window.is_null() {
+            ShowWindow(window, SW_HIDE);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn hide_console() {}

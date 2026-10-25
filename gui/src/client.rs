@@ -30,10 +30,17 @@ impl CoreConnection {
         let core_path = find_core().ok_or_else(|| {
             String::from("未找到 mzlauncher-core。请安装 core，或设置 MZLAUNCHER_CORE_PATH 指向 core 可执行文件。")
         })?;
-        let mut child = Command::new(&core_path)
+        let mut command = Command::new(&core_path);
+        command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000);
+        }
+        let mut child = command
             .spawn()
             .map_err(|error| format!("无法启动 core（{}）：{error}", core_path.display()))?;
         let stdin = child.stdin.take().ok_or("无法连接 core 标准输入")?;

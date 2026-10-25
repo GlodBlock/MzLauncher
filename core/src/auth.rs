@@ -188,9 +188,6 @@ impl AuthService {
                 }
             }
         });
-        open::that_detached(&authorization_url).map_err(|error| {
-            CoreError::Authentication(format!("could not open the system browser: {error}"))
-        })?;
         Ok(snapshot)
     }
 

@@ -9,7 +9,14 @@ impl MzApp {
         ui.heading(self.tr("accounts.title"));
         ui.label(self.tr("accounts.privacy"));
         ui.add_space(8.0);
-        if ui.button(self.tr("accounts.login")).clicked() {
+        let waiting = self
+            .login
+            .as_ref()
+            .is_some_and(|session| session.status == "waiting");
+        if ui
+            .add_enabled(!waiting, egui::Button::new(self.tr("accounts.login")))
+            .clicked()
+        {
             self.login = None;
             self.call(
                 "account.begin_login",

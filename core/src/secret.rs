@@ -36,7 +36,11 @@ mod tests {
     #[test]
     fn roundtrip_restores_plaintext() {
         let key = [7_u8; 32];
-        for text in ["", "short", "a longer value that spans multiple sha256 blocks"] {
+        for text in [
+            "",
+            "short",
+            "a longer value that spans multiple sha256 blocks",
+        ] {
             let encrypted = crypt(text.as_bytes(), &key);
             if text.is_empty() {
                 assert!(encrypted.is_empty());

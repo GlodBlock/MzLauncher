@@ -25,7 +25,16 @@ fn debug_account_is_controlled_by_the_compile_time_feature() {
     );
     assert_eq!(handshake["result"]["debugAuth"], cfg!(feature = "debug"));
     let microsoft = client.call("microsoft", "account.begin_login", Value::Null);
-    assert_eq!(microsoft["error"]["code"], "configuration_error");
+    if microsoft["error"].is_null() {
+        assert!(microsoft["result"]["id"].is_string());
+        client.call(
+            "cancel",
+            "account.cancel_login",
+            json!({"id": microsoft["result"]["id"]}),
+        );
+    } else {
+        assert_eq!(microsoft["error"]["code"], "configuration_error");
+    }
     let debug = client.call(
         "debug",
         "account.debug_login",

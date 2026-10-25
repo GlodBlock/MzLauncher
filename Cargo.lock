@@ -2241,7 +2241,6 @@ dependencies = [
  "futures-util",
  "hex",
  "keyring",
- "open",
  "parking_lot",
  "percent-encoding",
  "rand 0.8.8",

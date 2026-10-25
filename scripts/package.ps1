@@ -22,9 +22,9 @@ try {
     $exe = if ($platform -like "*windows*") { ".exe" } else { "" }
 
     $packages = @(
-        @{ Name = "core"; Files = @("mzlauncher-core$exe", "LICENSE") },
-        @{ Name = "gui"; Files = @("mzlauncher-gui$exe", "LICENSE") },
-        @{ Name = "full"; Files = @("mzlauncher-gui$exe", "mzlauncher-core$exe", "LICENSE", "README.md") }
+        @{ Name = "core"; Files = @("mzlauncher-core$exe", "LICENSE"); Lang = $false },
+        @{ Name = "gui"; Files = @("mzlauncher-gui$exe", "LICENSE"); Lang = $true },
+        @{ Name = "full"; Files = @("mzlauncher-gui$exe", "mzlauncher-core$exe", "LICENSE", "README.md"); Lang = $true }
     )
 
     New-Item -ItemType Directory -Force $OutDir | Out-Null
@@ -36,6 +36,9 @@ try {
             $source = if ($file -like "mzlauncher-*") { "$binDir/$file" } else { $file }
             if (-not (Test-Path $source)) { throw "missing build artifact: $source" }
             Copy-Item $source $staging
+        }
+        if ($package.Lang) {
+            Copy-Item -Recurse "gui/lang" "$staging/lang"
         }
         $archive = "$OutDir/mzlauncher-$($package.Name)-$version-$platform.zip"
         Remove-Item -Force $archive -ErrorAction SilentlyContinue

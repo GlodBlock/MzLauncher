@@ -5,54 +5,64 @@ use crate::app::MzApp;
 
 impl MzApp {
     pub fn settings_page(&mut self, ui: &mut egui::Ui) {
-        ui.heading("设置");
-        if ui.button("重新加载").clicked() {
-            self.call("settings.get", Value::Null, Value::Null);
-        }
+        ui.heading(self.tr("settings.title"));
+        ui.horizontal(|ui| {
+            ui.label(self.tr("settings.language"));
+            let current = self.i18n.current().to_owned();
+            egui::ComboBox::from_id_salt("language")
+                .selected_text(
+                    self.i18n
+                        .available()
+                        .into_iter()
+                        .find(|(id, _)| *id == current)
+                        .map(|(_, name)| name)
+                        .unwrap_or(current.clone()),
+                )
+                .show_ui(ui, |ui| {
+                    for (id, name) in self.i18n.available() {
+                        if ui.selectable_label(current == id, &name).clicked() {
+                            self.i18n.set_current(&id);
+                        }
+                    }
+                });
+            if ui.button(self.tr("action.refresh")).clicked() {
+                self.call("settings.get", Value::Null, Value::Null);
+            }
+        });
         let Some(mut draft) = self.settings_draft.clone() else {
-            ui.label("正在读取设置……");
+            ui.label(self.tr("settings.loading"));
             return;
         };
         egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.heading("下载");
+            ui.heading(self.tr("settings.download"));
             ui.horizontal(|ui| {
-                ui.label("并发数：");
+                ui.label(self.tr("settings.concurrency"));
                 ui.add(egui::DragValue::new(&mut draft.download.max_concurrent).range(1..=32));
-                ui.label("失败重试：");
+                ui.label(self.tr("settings.retries"));
                 ui.add(egui::DragValue::new(&mut draft.download.max_retries).range(0..=10));
             });
             ui.horizontal(|ui| {
-                ui.label("连接超时（秒）：");
+                ui.label(self.tr("settings.connect_timeout"));
                 ui.add(
                     egui::DragValue::new(&mut draft.download.connect_timeout_seconds)
                         .range(1..=120),
                 );
-                ui.label("读取超时（秒）：");
+                ui.label(self.tr("settings.read_timeout"));
                 ui.add(
                     egui::DragValue::new(&mut draft.download.read_timeout_seconds).range(1..=600),
                 );
             });
-            optional_text(
-                ui,
-                "代理（http/https，留空禁用）：",
-                &mut draft.download.proxy_url,
-                420.0,
-            );
+            self.optional_text(ui, "settings.proxy", &mut draft.download.proxy_url, 420.0);
 
             ui.add_space(8.0);
-            ui.heading("存储");
-            optional_text(
-                ui,
-                "Java 运行时目录（绝对路径，留空使用默认）：",
-                &mut draft.runtime_dir,
-                420.0,
-            );
+            ui.heading(self.tr("settings.storage"));
+            self.optional_text(ui, "settings.runtime_dir", &mut draft.runtime_dir, 420.0);
 
             ui.add_space(8.0);
-            ui.heading("API 密钥");
-            ui.label("密钥由 core 保存到操作系统凭据库，不会写入配置文件，也不会回显。");
+            ui.heading(self.tr("settings.api_keys"));
+            ui.label(self.tr("settings.api_keys_hint"));
             ui.horizontal(|ui| {
-                ui.label("CurseForge API Key：");
+                ui.label(self.tr("settings.curseforge_key"));
                 ui.add(
                     egui::TextEdit::singleline(&mut self.curseforge_key_input)
                         .password(true)
@@ -61,7 +71,7 @@ impl MzApp {
                 if ui
                     .add_enabled(
                         !self.curseforge_key_input.trim().is_empty(),
-                        egui::Button::new("保存密钥"),
+                        egui::Button::new(self.tr("settings.save_key")),
                     )
                     .clicked()
                 {
@@ -71,93 +81,136 @@ impl MzApp {
                         Value::Null,
                     );
                 }
-                if ui.button("删除密钥").clicked() {
+                if ui.button(self.tr("settings.delete_key")).clicked() {
                     self.call("provider.curseforge_key.delete", Value::Null, Value::Null);
                 }
             });
-            ui.small("微软客户端 ID 留空时使用 MZLAUNCHER_MICROSOFT_CLIENT_ID 环境变量；在此处填写并保存后无需再设置环境变量。");
-            optional_text(ui, "微软客户端 ID：", &mut draft.microsoft_client_id, 320.0);
+            ui.small(self.tr("settings.client_id_hint"));
+            self.optional_text(
+                ui,
+                "settings.client_id",
+                &mut draft.microsoft_client_id,
+                320.0,
+            );
 
             ui.add_space(8.0);
-            ui.heading("镜像源");
-            for (label, field) in [
-                ("版本清单", &mut draft.endpoints.version_manifest),
+            ui.heading(self.tr("settings.mirrors"));
+            for (key, field) in [
                 (
-                    "Java 运行时清单",
+                    "settings.endpoint.version_manifest",
+                    &mut draft.endpoints.version_manifest,
+                ),
+                (
+                    "settings.endpoint.java_runtime",
                     &mut draft.endpoints.java_runtime_manifest,
                 ),
-                ("Fabric Meta", &mut draft.endpoints.fabric_meta),
-                ("Forge Maven", &mut draft.endpoints.forge_maven),
-                ("NeoForge Maven", &mut draft.endpoints.neoforge_maven),
-                ("Modrinth API", &mut draft.endpoints.modrinth_api),
-                ("CurseForge API", &mut draft.endpoints.curseforge_api),
+                ("settings.endpoint.fabric", &mut draft.endpoints.fabric_meta),
+                ("settings.endpoint.forge", &mut draft.endpoints.forge_maven),
+                (
+                    "settings.endpoint.neoforge",
+                    &mut draft.endpoints.neoforge_maven,
+                ),
+                (
+                    "settings.endpoint.modrinth",
+                    &mut draft.endpoints.modrinth_api,
+                ),
+                (
+                    "settings.endpoint.curseforge",
+                    &mut draft.endpoints.curseforge_api,
+                ),
             ] {
                 ui.horizontal(|ui| {
-                    ui.label(format!("{label}："));
+                    ui.label(format!("{}：", self.tr(key)));
                     ui.add(egui::TextEdit::singleline(field).desired_width(420.0));
                 });
             }
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("保存设置").clicked() {
+                if ui.button(self.tr("settings.save")).clicked() {
                     match serde_json::to_value(&draft) {
                         Ok(value) => self.call("settings.update", value, Value::Null),
-                        Err(error) => self.notice = Some(format!("无法保存：{error}")),
+                        Err(error) => {
+                            self.notice = Some(
+                                self.trf("launch.save_error", &[("error", &error.to_string())]),
+                            )
+                        }
                     }
                 }
-                if ui.button("恢复默认设置").clicked() {
+                if ui.button(self.tr("settings.reset")).clicked() {
                     self.call("settings.reset", Value::Null, Value::Null);
                 }
             });
 
             ui.add_space(8.0);
-            ui.heading("Java");
-            if ui.button("扫描本机 Java").clicked() {
+            ui.heading(self.tr("settings.java"));
+            if ui.button(self.tr("settings.scan_java")).clicked() {
                 self.call("java.list", Value::Null, Value::Null);
             }
             for java in &self.java_candidates {
-                ui.label(format!(
-                    "Java {}（{}{}）：{}",
-                    java.major_version,
-                    java.architecture,
-                    if java.managed { "，自动管理" } else { "" },
-                    java.path
+                ui.label(self.trf(
+                    "settings.java_entry",
+                    &[
+                        ("version", &java.major_version.to_string()),
+                        ("arch", &java.architecture),
+                        (
+                            "managed",
+                            &if java.managed {
+                                self.tr("settings.java_managed")
+                            } else {
+                                String::new()
+                            },
+                        ),
+                        ("path", &java.path),
+                    ],
                 ));
             }
 
             ui.add_space(8.0);
-            ui.heading("关于");
-            ui.label(format!("gui 版本：{}", env!("CARGO_PKG_VERSION")));
+            ui.heading(self.tr("settings.about"));
+            ui.label(self.trf(
+                "settings.gui_version",
+                &[("version", env!("CARGO_PKG_VERSION"))],
+            ));
             if let Some(handshake) = &self.handshake {
-                ui.label(format!(
-                    "core 版本：{} · 协议 {} · 数据 {}",
-                    handshake.core_version, handshake.protocol_version, handshake.data_version
+                ui.label(self.trf(
+                    "settings.core_versions",
+                    &[
+                        ("core", &handshake.core_version),
+                        ("protocol", &handshake.protocol_version.to_string()),
+                        ("data", &handshake.data_version.to_string()),
+                    ],
                 ));
-                ui.label(format!("平台：{}", handshake.platform));
-                ui.label("本项目以 LGPL-3.0 发布");
-                ui.collapsing("core 支持的能力", |ui| {
+                ui.label(self.trf("settings.platform", &[("platform", &handshake.platform)]));
+                ui.label(self.tr("settings.license"));
+                ui.collapsing(self.tr("settings.capabilities"), |ui| {
                     ui.label(handshake.capabilities.join(", "));
                 });
             }
         });
         self.settings_draft = Some(draft);
     }
-}
 
-fn optional_text(ui: &mut egui::Ui, label: &str, value: &mut Option<String>, width: f32) {
-    ui.horizontal(|ui| {
-        ui.label(label);
-        let mut text = value.clone().unwrap_or_default();
-        if ui
-            .add(egui::TextEdit::singleline(&mut text).desired_width(width))
-            .changed()
-        {
-            *value = if text.trim().is_empty() {
-                None
-            } else {
-                Some(text.trim().to_owned())
-            };
-        }
-    });
+    fn optional_text(
+        &mut self,
+        ui: &mut egui::Ui,
+        key: &str,
+        value: &mut Option<String>,
+        width: f32,
+    ) {
+        ui.horizontal(|ui| {
+            ui.label(self.tr(key));
+            let mut text = value.clone().unwrap_or_default();
+            if ui
+                .add(egui::TextEdit::singleline(&mut text).desired_width(width))
+                .changed()
+            {
+                *value = if text.trim().is_empty() {
+                    None
+                } else {
+                    Some(text.trim().to_owned())
+                };
+            }
+        });
+    }
 }

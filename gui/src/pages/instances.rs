@@ -1,13 +1,13 @@
 use eframe::egui;
 use serde_json::{json, Value};
 
-use crate::app::{CreateDialog, DetailTab, MzApp};
+use crate::app::{CreateDialog, DetailTab, MzApp, Page};
 use crate::model::Instance;
-use crate::pages::home::{loader_label, status_label};
+use crate::pages::home::{loader_key, status_key};
 
 impl MzApp {
     pub fn open_create_dialog(&mut self) {
-        self.page = crate::app::Page::Instances;
+        self.page = Page::Instances;
         self.selected_instance = None;
         self.create = Some(CreateDialog {
             name: String::new(),
@@ -30,23 +30,24 @@ impl MzApp {
             return;
         }
         ui.horizontal(|ui| {
-            ui.heading("实例");
-            if ui.button("新建实例").clicked() {
+            ui.heading(self.tr("instances.title"));
+            if ui.button(self.tr("action.new_instance")).clicked() {
                 self.open_create_dialog();
             }
-            if ui.button("导入整合包").clicked() {
-                self.page = crate::app::Page::Modpack;
+            if ui.button(self.tr("action.import_modpack")).clicked() {
+                self.page = Page::Modpack;
             }
             ui.separator();
+            let search_hint = self.tr("instances.search_hint");
             ui.add(
                 egui::TextEdit::singleline(&mut self.instance_search)
                     .desired_width(200.0)
-                    .hint_text("搜索实例"),
+                    .hint_text(search_hint),
             );
         });
         ui.separator();
         if self.instances.is_empty() {
-            ui.label("暂无实例，点击“新建实例”开始。");
+            ui.label(self.tr("instances.empty"));
         }
         let search = self.instance_search.to_lowercase();
         let instances: Vec<Instance> = self
@@ -63,7 +64,7 @@ impl MzApp {
             ui.horizontal_wrapped(|ui| {
                 for instance in instances {
                     let selected = self.grid_selected.as_deref() == Some(instance.id.as_str());
-                    if instance_tile(ui, &instance, selected).clicked() {
+                    if instance_tile(ui, self, &instance, selected).clicked() {
                         clicked = Some(instance.id.clone());
                     }
                 }
@@ -97,17 +98,17 @@ impl MzApp {
                 ui.label(format!(
                     "{} · {}{}",
                     instance.game_version,
-                    loader_label(&instance.loader),
+                    self.tr(loader_key(&instance.loader)),
                     instance
                         .loader_version
                         .as_deref()
                         .map(|version| format!(" {version}"))
                         .unwrap_or_default()
                 ));
-                ui.label(status_label(
+                ui.label(self.tr(status_key(
                     &instance.install_status,
                     self.games.get(&instance.id).map(String::as_str),
-                ));
+                )));
                 ui.add_space(12.0);
                 let width = ui.available_width();
                 let running = matches!(
@@ -116,56 +117,55 @@ impl MzApp {
                 );
                 if running {
                     if ui
-                        .add_sized([width, 32.0], egui::Button::new("停止游戏"))
+                        .add_sized([width, 32.0], egui::Button::new(self.tr("action.stop_game")))
                         .clicked()
                     {
                         self.call("game.stop", json!({"id": id}), json!({"instanceId": id}));
                     }
-                } else if ui
-                    .add_sized(
-                        [width, 32.0],
-                        egui::Button::new(if instance.install_status == "installed" {
-                            "启动游戏"
-                        } else {
-                            "安装并准备启动"
-                        }),
-                    )
-                    .clicked()
-                {
-                    if instance.install_status == "installed" {
-                        self.call("game.launch", json!({"id": id}), json!({"instanceId": id}));
+                } else {
+                    let label = if instance.install_status == "installed" {
+                        "action.launch_game"
                     } else {
-                        self.call(
-                            "instance.install",
-                            json!({"id": id}),
-                            json!({"instanceId": id}),
-                        );
+                        "action.prepare_install"
+                    };
+                    if ui
+                        .add_sized([width, 32.0], egui::Button::new(self.tr(label)))
+                        .clicked()
+                    {
+                        if instance.install_status == "installed" {
+                            self.call("game.launch", json!({"id": id}), json!({"instanceId": id}));
+                        } else {
+                            self.call(
+                                "instance.install",
+                                json!({"id": id}),
+                                json!({"instanceId": id}),
+                            );
+                        }
                     }
                 }
                 if ui
-                    .add_sized([width, 30.0], egui::Button::new("安装 / 修复"))
+                    .add_sized(
+                        [width, 30.0],
+                        egui::Button::new(self.tr("action.install_repair")),
+                    )
                     .clicked()
                 {
-                    self.call(
-                        "instance.install",
-                        json!({"id": id}),
-                        json!({"instanceId": id}),
-                    );
+                    self.call("instance.install", json!({"id": id}), json!({"instanceId": id}));
                 }
                 if ui
-                    .add_sized([width, 30.0], egui::Button::new("打开详情"))
+                    .add_sized([width, 30.0], egui::Button::new(self.tr("action.open_detail")))
                     .clicked()
                 {
                     self.selected_instance = Some(id.to_owned());
                     self.detail_tab = DetailTab::Overview;
                 }
                 if ui
-                    .add_sized([width, 30.0], egui::Button::new("创建副本"))
+                    .add_sized([width, 30.0], egui::Button::new(self.tr("action.copy")))
                     .clicked()
                 {
                     self.call(
                         "instance.copy",
-                        json!({"id": id, "name": format!("{} 副本", instance.name)}),
+                        json!({"id": id, "name": self.trf("instances.copy_name", &[("name", &instance.name)])}),
                         Value::Null,
                     );
                 }
@@ -174,7 +174,7 @@ impl MzApp {
                     .add_sized(
                         [width, 30.0],
                         egui::Button::new(
-                            egui::RichText::new("删除实例")
+                            egui::RichText::new(self.tr("action.delete_instance"))
                                 .color(egui::Color32::from_rgb(190, 50, 50)),
                         ),
                     )
@@ -192,17 +192,17 @@ impl MzApp {
         let name = self.instance_name(&id);
         let mut confirm = false;
         let mut cancel = false;
-        egui::Window::new("删除实例")
+        egui::Window::new(self.tr("delete.title"))
             .collapsible(false)
             .resizable(false)
             .show(ctx, |ui| {
-                ui.label(format!("确定删除实例“{name}”吗？"));
-                ui.label("将删除该实例的 Mod、配置、存档、截图和日志，共享缓存不受影响。此操作不可撤销。");
+                ui.label(self.trf("delete.confirm", &[("name", &name)]));
+                ui.label(self.tr("delete.warning"));
                 ui.horizontal(|ui| {
-                    if ui.button("取消").clicked() {
+                    if ui.button(self.tr("action.cancel")).clicked() {
                         cancel = true;
                     }
-                    if ui.button("确认删除").clicked() {
+                    if ui.button(self.tr("action.confirm_delete")).clicked() {
                         confirm = true;
                     }
                 });
@@ -222,23 +222,24 @@ impl MzApp {
         let mut submit = false;
         let mut cancel = false;
         let mut loader_query = None;
-        egui::Window::new("新建实例")
+        egui::Window::new(self.tr("create.title"))
             .collapsible(false)
             .resizable(false)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label("名称：");
+                    ui.label(self.tr("create.name"));
                     ui.text_edit_singleline(&mut dialog.name);
                 });
                 let previous_version = dialog.game_version.clone();
                 ui.horizontal(|ui| {
-                    ui.label("游戏版本：");
+                    ui.label(self.tr("create.game_version"));
+                    let selected = if dialog.game_version.is_empty() {
+                        self.tr("common.select")
+                    } else {
+                        dialog.game_version.clone()
+                    };
                     egui::ComboBox::from_id_salt("game_version")
-                        .selected_text(if dialog.game_version.is_empty() {
-                            "请选择"
-                        } else {
-                            &dialog.game_version
-                        })
+                        .selected_text(selected)
                         .width(220.0)
                         .show_ui(ui, |ui| {
                             for version in &self.versions {
@@ -250,7 +251,10 @@ impl MzApp {
                             }
                         });
                     if ui
-                        .checkbox(&mut dialog.include_snapshots, "包含快照")
+                        .checkbox(
+                            &mut dialog.include_snapshots,
+                            self.tr("create.include_snapshots"),
+                        )
                         .changed()
                     {
                         self.call(
@@ -265,14 +269,14 @@ impl MzApp {
                 }
                 let previous_loader = dialog.loader.clone();
                 ui.horizontal(|ui| {
-                    ui.label("加载器：");
-                    for (value, label) in [
-                        ("vanilla", "Vanilla"),
-                        ("fabric", "Fabric"),
-                        ("forge", "Forge"),
-                        ("neo_forge", "NeoForge"),
+                    ui.label(self.tr("create.loader"));
+                    for (value, key) in [
+                        ("vanilla", "loader.vanilla"),
+                        ("fabric", "loader.fabric"),
+                        ("forge", "loader.forge"),
+                        ("neo_forge", "loader.neo_forge"),
                     ] {
-                        ui.selectable_value(&mut dialog.loader, value.to_owned(), label);
+                        ui.selectable_value(&mut dialog.loader, value.to_owned(), self.tr(key));
                     }
                 });
                 if previous_loader != dialog.loader {
@@ -284,13 +288,14 @@ impl MzApp {
                 }
                 if dialog.loader != "vanilla" {
                     ui.horizontal(|ui| {
-                        ui.label("加载器版本：");
+                        ui.label(self.tr("create.loader_version"));
+                        let selected = if dialog.loader_version.is_empty() {
+                            self.tr("common.select")
+                        } else {
+                            dialog.loader_version.clone()
+                        };
                         egui::ComboBox::from_id_salt("loader_version")
-                            .selected_text(if dialog.loader_version.is_empty() {
-                                "请选择"
-                            } else {
-                                &dialog.loader_version
-                            })
+                            .selected_text(selected)
                             .width(220.0)
                             .show_ui(ui, |ui| {
                                 for version in &self.loader_versions {
@@ -300,7 +305,11 @@ impl MzApp {
                                         format!(
                                             "{}{}",
                                             version.version,
-                                            if version.stable { "（稳定）" } else { "" }
+                                            if version.stable {
+                                                self.tr("create.stable_suffix")
+                                            } else {
+                                                String::new()
+                                            }
                                         ),
                                     );
                                 }
@@ -309,13 +318,16 @@ impl MzApp {
                 }
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button("取消").clicked() {
+                    if ui.button(self.tr("action.cancel")).clicked() {
                         cancel = true;
                     }
                     let valid = !dialog.name.trim().is_empty()
                         && !dialog.game_version.is_empty()
                         && (dialog.loader == "vanilla" || !dialog.loader_version.is_empty());
-                    if ui.add_enabled(valid, egui::Button::new("创建")).clicked() {
+                    if ui
+                        .add_enabled(valid, egui::Button::new(self.tr("action.create")))
+                        .clicked()
+                    {
                         submit = true;
                     }
                 });
@@ -355,14 +367,14 @@ impl MzApp {
 
     fn instance_detail(&mut self, ui: &mut egui::Ui, id: &str) {
         let Some(instance) = self.instance(id).cloned() else {
-            ui.label("实例不存在或已被删除。");
-            if ui.button("返回").clicked() {
+            ui.label(self.tr("instances.missing"));
+            if ui.button(self.tr("action.back")).clicked() {
                 self.selected_instance = None;
             }
             return;
         };
         ui.horizontal(|ui| {
-            if ui.button("← 返回列表").clicked() {
+            if ui.button(self.tr("action.back_to_list")).clicked() {
                 self.selected_instance = None;
                 return;
             }
@@ -370,18 +382,21 @@ impl MzApp {
             ui.label(format!(
                 "{} · {}",
                 instance.game_version,
-                loader_label(&instance.loader)
+                self.tr(loader_key(&instance.loader))
             ));
             self.instance_buttons(ui, id, &instance.install_status);
         });
         ui.horizontal(|ui| {
-            for (tab, label) in [
-                (DetailTab::Overview, "概览"),
-                (DetailTab::Mods, "Mod 管理"),
-                (DetailTab::Logs, "日志"),
-                (DetailTab::Launch, "启动设置"),
+            for (tab, key) in [
+                (DetailTab::Overview, "tab.overview"),
+                (DetailTab::Mods, "tab.mods"),
+                (DetailTab::Logs, "tab.logs"),
+                (DetailTab::Launch, "tab.launch"),
             ] {
-                if ui.selectable_label(self.detail_tab == tab, label).clicked() {
+                if ui
+                    .selectable_label(self.detail_tab == tab, self.tr(key))
+                    .clicked()
+                {
                     self.detail_tab = tab;
                     match tab {
                         DetailTab::Mods => self.refresh_mods(id),
@@ -408,24 +423,27 @@ impl MzApp {
     }
 
     fn instance_overview(&mut self, ui: &mut egui::Ui, instance: &Instance) {
-        ui.label(format!(
-            "状态：{}",
-            status_label(
-                &instance.install_status,
-                self.games.get(&instance.id).map(String::as_str)
-            )
+        ui.label(self.trf(
+            "overview.status",
+            &[(
+                "status",
+                &self.tr(status_key(
+                    &instance.install_status,
+                    self.games.get(&instance.id).map(String::as_str),
+                )),
+            )],
         ));
         if let Some(description) = &instance.description {
             ui.label(description);
         }
         if let Some(last) = &instance.last_launched_at {
-            ui.label(format!("最近启动：{last}"));
+            ui.label(self.trf("overview.last_launch", &[("time", last)]));
         }
         if let Some(code) = self.exit_codes.get(&instance.id) {
-            ui.label(format!("上次退出码：{code}"));
+            ui.label(self.trf("overview.exit_code", &[("code", &code.to_string())]));
         }
         ui.add_space(8.0);
-        if ui.button("启动前检查").clicked() {
+        if ui.button(self.tr("overview.preflight")).clicked() {
             self.call(
                 "game.preflight",
                 json!({"id": instance.id}),
@@ -438,12 +456,18 @@ impl MzApp {
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
             if valid {
-                ui.label("检查通过，可以启动。");
+                ui.label(self.tr("overview.preflight_ok"));
                 if let Some(java) = result.get("java").and_then(|java| java.get("path")) {
-                    ui.small(format!("Java：{}", java.as_str().unwrap_or_default()));
+                    ui.small(self.trf(
+                        "overview.preflight_java",
+                        &[("path", java.as_str().unwrap_or_default())],
+                    ));
                 }
             } else {
-                ui.colored_label(egui::Color32::from_rgb(200, 60, 60), "启动前检查未通过：");
+                ui.colored_label(
+                    egui::Color32::from_rgb(200, 60, 60),
+                    self.tr("overview.preflight_failed"),
+                );
                 if let Some(issues) = result.get("issues").and_then(Value::as_array) {
                     for issue in issues {
                         ui.label(format!("- {}", issue_text(issue)));
@@ -455,22 +479,22 @@ impl MzApp {
 
     fn instance_mods(&mut self, ui: &mut egui::Ui, id: &str) {
         ui.horizontal(|ui| {
-            if ui.button("刷新").clicked() {
+            if ui.button(self.tr("action.refresh")).clicked() {
                 self.refresh_mods(id);
             }
-            if ui.button("检查更新").clicked() {
+            if ui.button(self.tr("mods.check_update")).clicked() {
                 self.call(
                     "mod.update",
                     json!({"instanceId": id}),
                     json!({"instanceId": id}),
                 );
             }
-            ui.label("手动放入实例 mods 目录的 jar 会显示为“未跟踪”。");
+            ui.label(self.tr("mods.manual_hint"));
         });
         ui.separator();
         let mods = self.mods.get(id).cloned().unwrap_or_default();
         if mods.is_empty() {
-            ui.label("该实例还没有 Mod。");
+            ui.label(self.tr("mods.empty"));
         }
         egui::ScrollArea::vertical().show(ui, |ui| {
             for installed in mods {
@@ -486,11 +510,11 @@ impl MzApp {
                     ui.strong(&installed.file.project_name);
                     ui.label(&installed.file.version_name);
                     ui.label(if installed.managed {
-                        installed.file.provider.as_str()
+                        installed.file.provider.clone()
                     } else {
-                        "未跟踪"
+                        self.tr("mods.untracked")
                     });
-                    if ui.small_button("移除").clicked() {
+                    if ui.small_button(self.tr("action.remove")).clicked() {
                         self.call(
                             "mod.remove",
                             json!({"id": installed.id}),
@@ -503,7 +527,7 @@ impl MzApp {
     }
 
     fn instance_logs(&mut self, ui: &mut egui::Ui, id: &str) {
-        if ui.button("重新加载日志").clicked() {
+        if ui.button(self.tr("logs.reload")).clicked() {
             self.call(
                 "game.logs",
                 json!({"id": id, "tail": 500}),
@@ -513,7 +537,7 @@ impl MzApp {
         ui.separator();
         let logs = self.logs.get(id).cloned().unwrap_or_default();
         if logs.is_empty() {
-            ui.label("暂无日志。启动游戏后可在这里查看输出。");
+            ui.label(self.tr("logs.empty"));
         }
         egui::ScrollArea::vertical()
             .stick_to_bottom(true)
@@ -532,7 +556,7 @@ impl MzApp {
             return;
         }
         ui.horizontal(|ui| {
-            ui.label("Java 路径（留空自动选择）：");
+            ui.label(self.tr("launch.java_path"));
             let mut java = draft.java_path.clone().unwrap_or_default();
             if ui.text_edit_singleline(&mut java).changed() {
                 draft.java_path = if java.trim().is_empty() {
@@ -543,29 +567,37 @@ impl MzApp {
             }
         });
         ui.horizontal(|ui| {
-            ui.label("最小内存 MB：");
+            ui.label(self.tr("launch.min_memory"));
             ui.add(egui::DragValue::new(&mut draft.min_memory_mb).range(256..=65536));
-            ui.label("最大内存 MB：");
+            ui.label(self.tr("launch.max_memory"));
             ui.add(egui::DragValue::new(&mut draft.max_memory_mb).range(256..=65536));
         });
         ui.horizontal(|ui| {
-            ui.label("额外 JVM 参数（空格分隔）：");
+            ui.label(self.tr("launch.jvm_args"));
             let mut args = draft.jvm_args.join(" ");
             if ui.text_edit_singleline(&mut args).changed() {
                 draft.jvm_args = args.split_whitespace().map(str::to_owned).collect();
             }
         });
-        if ui.button("保存启动设置").clicked() {
+        if ui.button(self.tr("launch.save")).clicked() {
             match serde_json::to_value(&draft) {
                 Ok(value) => self.call("instance.update", value, Value::Null),
-                Err(error) => self.notice = Some(format!("无法保存：{error}")),
+                Err(error) => {
+                    self.notice =
+                        Some(self.trf("launch.save_error", &[("error", &error.to_string())]))
+                }
             }
         }
         self.draft_instance = Some(draft);
     }
 }
 
-fn instance_tile(ui: &mut egui::Ui, instance: &Instance, selected: bool) -> egui::Response {
+fn instance_tile(
+    ui: &mut egui::Ui,
+    app: &MzApp,
+    instance: &Instance,
+    selected: bool,
+) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(136.0, 132.0), egui::Sense::click());
     let accent = egui::Color32::from_rgb(59, 130, 246);
     let fill = if selected {
@@ -625,7 +657,7 @@ fn instance_tile(ui: &mut egui::Ui, instance: &Instance, selected: bool) -> egui
         format!(
             "{} · {}",
             instance.game_version,
-            loader_label(&instance.loader)
+            app.tr(loader_key(&instance.loader))
         ),
         egui::FontId::proportional(11.0),
         egui::Color32::from_rgb(120, 126, 134),
@@ -633,11 +665,7 @@ fn instance_tile(ui: &mut egui::Ui, instance: &Instance, selected: bool) -> egui
     ui.painter().text(
         egui::pos2(rect.center().x, rect.top() + 106.0),
         egui::Align2::CENTER_TOP,
-        match instance.install_status.as_str() {
-            "installed" => "可启动",
-            "installing" => "安装中",
-            _ => "未安装",
-        },
+        app.tr(status_key(&instance.install_status, None)),
         egui::FontId::proportional(11.0),
         if instance.install_status == "installed" {
             egui::Color32::from_rgb(34, 150, 84)

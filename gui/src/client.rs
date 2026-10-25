@@ -14,7 +14,7 @@ pub enum CoreMessage {
         error: Option<Value>,
     },
     Event(Value),
-    Disconnected(String),
+    Disconnected(String, String),
 }
 
 pub struct CoreConnection {
@@ -26,10 +26,9 @@ pub struct CoreConnection {
 }
 
 impl CoreConnection {
-    pub fn spawn() -> Result<Self, String> {
-        let core_path = find_core().ok_or_else(|| {
-            String::from("未找到 mzlauncher-core。请安装 core，或设置 MZLAUNCHER_CORE_PATH 指向 core 可执行文件。")
-        })?;
+    pub fn spawn() -> Result<Self, (String, String)> {
+        let core_path =
+            find_core().ok_or_else(|| ("error.core_not_found".to_owned(), String::new()))?;
         let mut command = Command::new(&core_path);
         command
             .stdin(Stdio::piped())
@@ -42,9 +41,15 @@ impl CoreConnection {
         }
         let mut child = command
             .spawn()
-            .map_err(|error| format!("无法启动 core（{}）：{error}", core_path.display()))?;
-        let stdin = child.stdin.take().ok_or("无法连接 core 标准输入")?;
-        let stdout = child.stdout.take().ok_or("无法连接 core 标准输出")?;
+            .map_err(|error| ("error.core_spawn".to_owned(), error.to_string()))?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| ("error.core_stdin".to_owned(), String::new()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| ("error.core_stdout".to_owned(), String::new()))?;
         let (sender, receiver) = channel();
         std::thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
@@ -53,7 +58,10 @@ impl CoreConnection {
                 line.clear();
                 match reader.read_line(&mut line) {
                     Ok(0) => {
-                        let _ = sender.send(CoreMessage::Disconnected("core 进程已退出".into()));
+                        let _ = sender.send(CoreMessage::Disconnected(
+                            "error.core_exited".into(),
+                            String::new(),
+                        ));
                         break;
                     }
                     Ok(_) => {
@@ -77,9 +85,10 @@ impl CoreConnection {
                         }
                     }
                     Err(error) => {
-                        let _ = sender.send(CoreMessage::Disconnected(format!(
-                            "读取 core 输出失败：{error}"
-                        )));
+                        let _ = sender.send(CoreMessage::Disconnected(
+                            "error.core_read".into(),
+                            error.to_string(),
+                        ));
                         break;
                     }
                 }
@@ -97,11 +106,12 @@ impl CoreConnection {
     pub fn request(&self, method: &str, params: Value) -> Result<String, String> {
         let id = format!("gui-{}", self.counter.fetch_add(1, Ordering::SeqCst));
         let message = json!({"id": id, "method": method, "params": params});
-        let mut writer = self.writer.lock().map_err(|_| "core 写入锁已损坏")?;
-        writeln!(writer, "{message}").map_err(|error| format!("发送请求失败：{error}"))?;
-        writer
-            .flush()
-            .map_err(|error| format!("发送请求失败：{error}"))?;
+        let mut writer = self
+            .writer
+            .lock()
+            .map_err(|_| "core writer lock unavailable".to_owned())?;
+        writeln!(writer, "{message}").map_err(|error| error.to_string())?;
+        writer.flush().map_err(|error| error.to_string())?;
         Ok(id)
     }
 }

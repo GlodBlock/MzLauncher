@@ -5,13 +5,13 @@ use crate::pages::home::job_row;
 
 impl MzApp {
     pub fn jobs_page(&mut self, ui: &mut egui::Ui) {
-        ui.heading("任务中心");
-        if ui.button("刷新").clicked() {
+        ui.heading(self.tr("jobs.title"));
+        if ui.button(self.tr("action.refresh")).clicked() {
             self.call("job.list", serde_json::Value::Null, serde_json::Value::Null);
         }
         ui.separator();
         if self.jobs.is_empty() {
-            ui.label("暂无任务记录");
+            ui.label(self.tr("jobs.empty"));
         }
         let jobs = self.jobs.clone();
         egui::ScrollArea::vertical().show(ui, |ui| {
@@ -24,16 +24,14 @@ impl MzApp {
                     if let Some(error) = &job.error {
                         ui.colored_label(
                             egui::Color32::from_rgb(200, 60, 60),
-                            format!(
-                                "错误：{}（{}）{}",
-                                error.message,
-                                error.code,
-                                if error.retryable { "，可重试" } else { "" }
+                            self.trf(
+                                "job.error",
+                                &[("message", &error.message), ("code", &error.code)],
                             ),
                         );
                     }
                     if let Some(result) = &job.result {
-                        ui.collapsing("结果详情", |ui| {
+                        ui.collapsing(self.tr("jobs.result_details"), |ui| {
                             ui.small(result.to_string());
                         });
                     }

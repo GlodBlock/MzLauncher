@@ -2270,6 +2270,7 @@ dependencies = [
 name = "mzlauncher-gui"
 version = "0.1.0"
 dependencies = [
+ "directories",
  "eframe",
  "open",
  "rfd",

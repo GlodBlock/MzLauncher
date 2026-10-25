@@ -5,7 +5,7 @@ use crate::app::{DetailTab, MzApp, Page};
 
 impl MzApp {
     pub fn home_page(&mut self, ui: &mut egui::Ui) {
-        ui.heading("首页");
+        ui.heading(self.tr("home.title"));
         ui.add_space(8.0);
 
         let account = self
@@ -20,19 +20,15 @@ impl MzApp {
             })
             .or_else(|| self.accounts.first().cloned());
         ui.horizontal(|ui| {
-            ui.label("当前账号：");
+            ui.label(self.tr("home.current_account"));
             match account {
                 Some(account) => {
                     ui.strong(account.name);
-                    ui.label(if account.kind == "microsoft" {
-                        "微软账号"
-                    } else {
-                        "本地账号"
-                    });
+                    ui.label(self.tr(account_kind_key(&account.kind)));
                 }
                 None => {
-                    ui.label("尚未登录");
-                    if ui.button("添加微软账号").clicked() {
+                    ui.label(self.tr("home.no_account"));
+                    if ui.button(self.tr("home.add_account")).clicked() {
                         self.page = Page::Accounts;
                     }
                 }
@@ -40,10 +36,10 @@ impl MzApp {
         });
         ui.add_space(12.0);
 
-        ui.heading("实例");
+        ui.heading(self.tr("home.instances"));
         if self.instances.is_empty() {
-            ui.label("还没有实例。创建一个实例或导入整合包即可开始。");
-            if ui.button("新建实例").clicked() {
+            ui.label(self.tr("home.empty_instances"));
+            if ui.button(self.tr("action.new_instance")).clicked() {
                 self.open_create_dialog();
             }
         }
@@ -54,14 +50,14 @@ impl MzApp {
                 ui.label(format!(
                     "{} · {}",
                     instance.game_version,
-                    loader_label(&instance.loader)
+                    self.tr(loader_key(&instance.loader))
                 ));
-                ui.label(status_label(
+                ui.label(self.tr(status_key(
                     &instance.install_status,
                     self.games.get(&instance.id).map(String::as_str),
-                ));
+                )));
                 self.instance_buttons(ui, &instance.id, &instance.install_status);
-                if ui.button("详情").clicked() {
+                if ui.button(self.tr("action.details")).clicked() {
                     self.selected_instance = Some(instance.id.clone());
                     self.detail_tab = DetailTab::Overview;
                     self.page = Page::Instances;
@@ -70,7 +66,7 @@ impl MzApp {
         }
         ui.add_space(12.0);
 
-        ui.heading("进行中的任务");
+        ui.heading(self.tr("home.active_jobs"));
         let active: Vec<_> = self
             .jobs
             .iter()
@@ -78,12 +74,12 @@ impl MzApp {
             .cloned()
             .collect();
         if active.is_empty() {
-            ui.label("暂无任务");
+            ui.label(self.tr("home.no_jobs"));
         }
         for job in active.iter().take(4) {
             job_row(ui, job, self);
         }
-        if !active.is_empty() && ui.button("打开任务中心").clicked() {
+        if !active.is_empty() && ui.button(self.tr("home.open_jobs")).clicked() {
             self.page = Page::Jobs;
         }
     }
@@ -94,14 +90,14 @@ impl MzApp {
             Some("running" | "starting")
         );
         if running {
-            if ui.button("停止").clicked() {
+            if ui.button(self.tr("action.stop")).clicked() {
                 self.call("game.stop", json!({"id": id}), json!({"instanceId": id}));
             }
         } else {
-            if install_status == "installed" && ui.button("启动").clicked() {
+            if install_status == "installed" && ui.button(self.tr("action.launch")).clicked() {
                 self.call("game.launch", json!({"id": id}), json!({"instanceId": id}));
             }
-            if ui.button("安装/修复").clicked() {
+            if ui.button(self.tr("action.install_repair")).clicked() {
                 self.call(
                     "instance.install",
                     json!({"id": id}),
@@ -112,67 +108,77 @@ impl MzApp {
     }
 }
 
-pub fn loader_label(loader: &str) -> &'static str {
-    match loader {
-        "fabric" => "Fabric",
-        "forge" => "Forge",
-        "neo_forge" => "NeoForge",
-        "quilt" => "Quilt",
-        _ => "Vanilla",
+pub fn account_kind_key(kind: &str) -> &'static str {
+    if kind == "microsoft" {
+        "account.kind.microsoft"
+    } else {
+        "account.kind.local"
     }
 }
 
-pub fn status_label(install_status: &str, game: Option<&str>) -> String {
+pub fn loader_key(loader: &str) -> &'static str {
+    match loader {
+        "fabric" => "loader.fabric",
+        "forge" => "loader.forge",
+        "neo_forge" => "loader.neo_forge",
+        "quilt" => "loader.quilt",
+        _ => "loader.vanilla",
+    }
+}
+
+pub fn status_key(install_status: &str, game: Option<&str>) -> &'static str {
     match game {
-        Some("running") => "运行中".into(),
-        Some("starting") => "启动中".into(),
-        Some("stopping") => "停止中".into(),
-        Some("failed") => "启动失败".into(),
+        Some("running") => "status.running",
+        Some("starting") => "status.starting",
+        Some("stopping") => "status.stopping",
+        Some("failed") => "status.launch_failed",
         _ => match install_status {
-            "installed" => "可启动".into(),
-            "installing" => "安装中".into(),
-            "incomplete" => "不完整".into(),
-            "broken" => "已损坏".into(),
-            _ => "未安装".into(),
+            "installed" => "status.ready",
+            "installing" => "status.installing",
+            "incomplete" => "status.incomplete",
+            "broken" => "status.broken",
+            _ => "status.not_installed",
         },
     }
 }
 
-pub fn job_kind_label(kind: &str) -> &'static str {
+pub fn job_kind_key(kind: &str) -> &'static str {
     match kind {
-        "install" => "实例安装",
-        "import" => "整合包导入",
-        "mod_update" => "Mod 更新",
-        "download" => "下载",
-        "cache_clean" => "缓存清理",
-        "data_migration" => "数据迁移",
-        _ => "任务",
+        "install" => "job.kind.install",
+        "import" => "job.kind.import",
+        "mod_update" => "job.kind.mod_update",
+        "download" => "job.kind.download",
+        "cache_clean" => "job.kind.cache_clean",
+        "data_migration" => "job.kind.data_migration",
+        _ => "job.kind.generic",
     }
 }
 
-pub fn job_status_label(status: &str) -> &'static str {
+pub fn job_status_key(status: &str) -> &'static str {
     match status {
-        "queued" => "排队中",
-        "running" => "进行中",
-        "cancelling" => "取消中",
-        "cancelled" => "已取消",
-        "failed" => "失败",
-        "succeeded" => "已完成",
-        "interrupted" => "已中断",
-        _ => "未知",
+        "queued" => "job.status.queued",
+        "running" => "job.status.running",
+        "cancelling" => "job.status.cancelling",
+        "cancelled" => "job.status.cancelled",
+        "failed" => "job.status.failed",
+        "succeeded" => "job.status.succeeded",
+        "interrupted" => "job.status.interrupted",
+        _ => "job.status.unknown",
     }
 }
 
 pub fn job_row(ui: &mut egui::Ui, job: &crate::model::Job, app: &mut MzApp) {
     ui.horizontal(|ui| {
+        let target = job
+            .target
+            .as_deref()
+            .map(|id| app.instance_name(id))
+            .unwrap_or_default();
         ui.label(format!(
             "{} · {} · {}",
-            job_kind_label(&job.kind),
-            job.target
-                .as_deref()
-                .map(|id| app.instance_name(id))
-                .unwrap_or_default(),
-            job_status_label(&job.status)
+            app.tr(job_kind_key(&job.kind)),
+            target,
+            app.tr(job_status_key(&job.status))
         ));
         if let Some(total) = job.progress.total {
             if total > 0 {
@@ -185,15 +191,29 @@ pub fn job_row(ui: &mut egui::Ui, job: &crate::model::Job, app: &mut MzApp) {
             }
         }
         ui.label(&job.progress.stage);
-        if matches!(job.status.as_str(), "queued" | "running") && ui.small_button("取消").clicked()
+        if matches!(job.status.as_str(), "queued" | "running")
+            && ui.small_button(app.tr("action.cancel")).clicked()
         {
             app.call("job.cancel", json!({"id": job.id}), serde_json::Value::Null);
         }
     });
     if let Some(error) = &job.error {
+        let suffix = if error.retryable {
+            app.tr("job.retryable_suffix")
+        } else {
+            String::new()
+        };
         ui.colored_label(
             egui::Color32::from_rgb(200, 60, 60),
-            format!("错误：{}（{}）", error.message, error.code),
+            format!(
+                "{}{}{}",
+                app.trf(
+                    "job.error",
+                    &[("message", &error.message), ("code", &error.code)]
+                ),
+                if suffix.is_empty() { "" } else { " " },
+                suffix
+            ),
         );
     }
 }

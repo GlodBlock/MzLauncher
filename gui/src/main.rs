@@ -2,6 +2,7 @@
 
 mod app;
 mod client;
+mod i18n;
 mod model;
 mod pages;
 

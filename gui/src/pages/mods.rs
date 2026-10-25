@@ -2,23 +2,30 @@ use eframe::egui;
 use serde_json::{json, Value};
 
 use crate::app::MzApp;
-use crate::pages::home::loader_label;
+use crate::pages::home::loader_key;
 
 impl MzApp {
     pub fn mods_page(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Mod 浏览");
+        ui.heading(self.tr("browser.title"));
         ui.horizontal(|ui| {
-            ui.label("来源：");
-            for (value, label) in [("modrinth", "Modrinth"), ("curse_forge", "CurseForge")] {
-                ui.selectable_value(&mut self.browser.provider, value.to_owned(), label);
-            }
-            ui.label("目标实例：");
+            ui.label(self.tr("browser.provider"));
+            ui.selectable_value(
+                &mut self.browser.provider,
+                "modrinth".to_owned(),
+                "Modrinth",
+            );
+            ui.selectable_value(
+                &mut self.browser.provider,
+                "curse_forge".to_owned(),
+                "CurseForge",
+            );
+            ui.label(self.tr("browser.target"));
             let target_name = self
                 .browser
                 .target
                 .as_deref()
                 .map(|id| self.instance_name(id))
-                .unwrap_or_else(|| "无可用实例".into());
+                .unwrap_or_else(|| self.tr("browser.no_target"));
             egui::ComboBox::from_id_salt("mod_target")
                 .selected_text(target_name)
                 .show_ui(ui, |ui| {
@@ -32,12 +39,13 @@ impl MzApp {
                 });
         });
         ui.horizontal(|ui| {
+            let search_hint = self.tr("browser.search_hint");
             ui.add(
                 egui::TextEdit::singleline(&mut self.browser.query)
                     .desired_width(320.0)
-                    .hint_text("输入名称或关键词"),
+                    .hint_text(search_hint),
             );
-            if ui.button("搜索").clicked() {
+            if ui.button(self.tr("browser.search")).clicked() {
                 self.search_mods();
             }
             if self.browser.searching {
@@ -49,7 +57,7 @@ impl MzApp {
         let results = self.browser.results.clone();
         egui::ScrollArea::vertical().show(ui, |ui| {
             if results.is_empty() && !self.browser.searching {
-                ui.label("输入关键词开始搜索。安装前请先选择目标实例。");
+                ui.label(self.tr("browser.empty"));
             }
             for project in results {
                 egui::Frame::group(ui.style()).show(ui, |ui| {
@@ -60,9 +68,13 @@ impl MzApp {
                         } else {
                             "Modrinth"
                         });
-                        ui.label(format!("作者：{}", project.author));
-                        ui.label(format!("下载量：{}", project.downloads));
-                        if project.page_url.is_some() && ui.small_button("打开来源页").clicked()
+                        ui.label(self.trf("browser.author", &[("author", &project.author)]));
+                        ui.label(self.trf(
+                            "browser.downloads",
+                            &[("count", &project.downloads.to_string())],
+                        ));
+                        if project.page_url.is_some()
+                            && ui.small_button(self.tr("browser.open_page")).clicked()
                         {
                             let _ = open::that(project.page_url.clone().unwrap());
                         }
@@ -71,11 +83,11 @@ impl MzApp {
                     let expanded =
                         self.browser.expanded.as_deref() == Some(project.project_id.as_str());
                     if ui
-                        .button(if expanded {
-                            "收起版本"
+                        .button(self.tr(if expanded {
+                            "browser.hide_files"
                         } else {
-                            "选择版本"
-                        })
+                            "browser.show_files"
+                        }))
                         .clicked()
                     {
                         if expanded {
@@ -103,7 +115,7 @@ impl MzApp {
                             .cloned()
                             .unwrap_or_default();
                         if files.is_empty() {
-                            ui.label("正在加载版本，或该实例版本/加载器下没有可用文件。");
+                            ui.label(self.tr("browser.files_empty"));
                         }
                         for file in files {
                             ui.horizontal(|ui| {
@@ -111,19 +123,23 @@ impl MzApp {
                                     "{} · {} · {}",
                                     file.version_name, file.channel, file.file_name
                                 ));
-                                ui.small(format!(
-                                    "支持：{} {}",
-                                    file.game_versions.join(", "),
-                                    file.loaders
-                                        .iter()
-                                        .map(|loader| loader_label(loader))
-                                        .collect::<Vec<_>>()
-                                        .join(", ")
+                                let loaders = file
+                                    .loaders
+                                    .iter()
+                                    .map(|loader| self.tr(loader_key(loader)))
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                ui.small(self.trf(
+                                    "browser.file_support",
+                                    &[
+                                        ("versions", &file.game_versions.join(", ")),
+                                        ("loaders", &loaders),
+                                    ],
                                 ));
                                 if !file.distribution_allowed {
-                                    ui.label("需手动下载");
+                                    ui.label(self.tr("browser.manual_download"));
                                 } else if let Some(target) = &target {
-                                    if ui.small_button("安装").clicked() {
+                                    if ui.small_button(self.tr("browser.install")).clicked() {
                                         self.call(
                                             "mod.install",
                                             json!({"instanceId": target, "file": file}),

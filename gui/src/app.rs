@@ -4,6 +4,7 @@ use eframe::egui;
 use serde_json::{json, Value};
 
 use crate::client::{CoreConnection, CoreMessage};
+use crate::i18n::I18n;
 use crate::model::*;
 
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -59,6 +60,7 @@ pub struct Pending {
 }
 
 pub struct MzApp {
+    pub i18n: I18n,
     pub conn: Option<CoreConnection>,
     pub fatal: Option<String>,
     pub notice: Option<String>,
@@ -94,6 +96,7 @@ pub struct MzApp {
 impl MzApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let mut app = Self {
+            i18n: I18n::load(),
             conn: None,
             fatal: None,
             notice: None,
@@ -142,6 +145,14 @@ impl MzApp {
         app
     }
 
+    pub fn tr(&self, key: &str) -> String {
+        self.i18n.tr(key)
+    }
+
+    pub fn trf(&self, key: &str, params: &[(&str, &str)]) -> String {
+        self.i18n.trf(key, params)
+    }
+
     pub fn connect(&mut self) {
         self.fatal = None;
         self.handshake = None;
@@ -158,13 +169,15 @@ impl MzApp {
                     Value::Null,
                 );
             }
-            Err(error) => self.fatal = Some(error),
+            Err((key, detail)) => {
+                self.fatal = Some(self.trf(&key, &[("detail", &detail)]));
+            }
         }
     }
 
     pub fn call(&mut self, method: &str, params: Value, context: Value) {
         let Some(conn) = &self.conn else {
-            self.notice = Some("core 未连接".into());
+            self.notice = Some(self.tr("notice.core_disconnected"));
             return;
         };
         match conn.request(method, params) {
@@ -177,7 +190,9 @@ impl MzApp {
                     },
                 );
             }
-            Err(error) => self.fatal = Some(error),
+            Err(error) => {
+                self.fatal = Some(self.trf("error.request_send", &[("detail", &error)]));
+            }
         }
     }
 
@@ -229,8 +244,9 @@ impl MzApp {
                     }
                 }
                 CoreMessage::Event(event) => self.handle_event(event),
-                CoreMessage::Disconnected(reason) => {
-                    self.fatal = Some(format!("{reason}。界面数据可能已过期，请重连后再操作。"));
+                CoreMessage::Disconnected(key, detail) => {
+                    let reason = self.trf(&key, &[("detail", &detail)]);
+                    self.fatal = Some(self.trf("error.disconnected_stale", &[("reason", &reason)]));
                     self.conn = None;
                     self.pending.clear();
                     break;
@@ -243,18 +259,26 @@ impl MzApp {
         let message = error
             .get("message")
             .and_then(Value::as_str)
-            .unwrap_or("未知错误")
+            .unwrap_or("unknown error")
             .to_owned();
         let code = error.get("code").and_then(Value::as_str).unwrap_or("");
         match pending.method.as_str() {
             "system.handshake" => {
-                self.fatal = Some(format!("与 core 的协议不兼容：{message}"));
+                self.fatal =
+                    Some(self.trf("error.protocol_incompatible", &[("message", &message)]));
             }
             "mod.search" => self.browser.searching = false,
             "modpack.analyze" => self.modpack.analyzing = false,
             _ => {}
         }
-        self.notice = Some(format!("{} 失败：{}（{code}）", pending.method, message));
+        self.notice = Some(self.trf(
+            "notice.request_failed",
+            &[
+                ("method", &pending.method),
+                ("message", &message),
+                ("code", code),
+            ],
+        ));
     }
 
     fn handle_event(&mut self, event: Value) {
@@ -329,7 +353,8 @@ impl MzApp {
             "loader.list" => self.loader_versions = parse_list(result),
             "instance.create" => {
                 if let Ok(instance) = serde_json::from_value::<Instance>(result) {
-                    self.notice = Some(format!("实例 {} 已创建", instance.name));
+                    self.notice =
+                        Some(self.trf("notice.instance_created", &[("name", &instance.name)]));
                     self.selected_instance = Some(instance.id);
                     self.create = None;
                     self.refresh_instances();
@@ -340,16 +365,16 @@ impl MzApp {
                 if let Ok(job) = serde_json::from_value::<Job>(result) {
                     self.merge_job(job);
                 }
-                self.notice = Some("任务已提交，可在任务中心查看进度".into());
+                self.notice = Some(self.tr("notice.job_submitted"));
             }
             "instance.delete" => {
-                self.notice = Some("实例已删除".into());
+                self.notice = Some(self.tr("notice.instance_deleted"));
                 self.selected_instance = None;
                 self.refresh_instances();
             }
             "instance.copy" | "instance.rename" | "instance.update" => {
                 self.refresh_instances();
-                self.notice = Some("已保存".into());
+                self.notice = Some(self.tr("notice.saved"));
             }
             "game.launch" | "game.stop" | "game.status" => {
                 if let Ok(snapshot) = serde_json::from_value::<GameSnapshot>(result) {
@@ -384,15 +409,15 @@ impl MzApp {
             }
             "account.select" | "account.logout" | "account.refresh" => {
                 self.call("account.list", Value::Null, Value::Null);
-                self.notice = Some("账号状态已更新".into());
+                self.notice = Some(self.tr("notice.account_updated"));
             }
             "java.list" => self.java_candidates = parse_list(result),
             "provider.curseforge_key.set" => {
                 self.curseforge_key_input.clear();
-                self.notice = Some("CurseForge API 密钥已保存到系统凭据库".into());
+                self.notice = Some(self.tr("notice.curseforge_key_saved"));
             }
             "provider.curseforge_key.delete" => {
-                self.notice = Some("CurseForge API 密钥已删除".into());
+                self.notice = Some(self.tr("notice.curseforge_key_deleted"));
             }
             "mod.search" => {
                 self.browser.results = parse_list(result);
@@ -455,14 +480,14 @@ impl eframe::App for MzApp {
                     ui.heading(egui::RichText::new("MzLauncher").size(22.0));
                 });
                 ui.add_space(16.0);
-                for (page, label) in [
-                    (Page::Home, "首页"),
-                    (Page::Instances, "实例"),
-                    (Page::Mods, "Mod 浏览"),
-                    (Page::Modpack, "整合包导入"),
-                    (Page::Jobs, "任务中心"),
-                    (Page::Accounts, "账号"),
-                    (Page::Settings, "设置"),
+                for (page, key) in [
+                    (Page::Home, "nav.home"),
+                    (Page::Instances, "nav.instances"),
+                    (Page::Mods, "nav.mods"),
+                    (Page::Modpack, "nav.modpack"),
+                    (Page::Jobs, "nav.jobs"),
+                    (Page::Accounts, "nav.accounts"),
+                    (Page::Settings, "nav.settings"),
                 ] {
                     let selected = self.page == page;
                     if ui
@@ -470,7 +495,7 @@ impl eframe::App for MzApp {
                             [ui.available_width(), 34.0],
                             egui::SelectableLabel::new(
                                 selected,
-                                egui::RichText::new(label).size(15.0),
+                                egui::RichText::new(self.tr(key)).size(15.0),
                             ),
                         )
                         .clicked()
@@ -483,16 +508,22 @@ impl eframe::App for MzApp {
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if let Some(handshake) = &self.handshake {
-                    ui.label(format!(
-                        "core {} · 协议 {}",
-                        handshake.core_version, handshake.protocol_version
+                    ui.label(self.trf(
+                        "status.core_protocol",
+                        &[
+                            ("version", &handshake.core_version),
+                            ("protocol", &handshake.protocol_version.to_string()),
+                        ],
                     ));
                 } else {
-                    ui.label("core 未连接");
+                    ui.label(self.tr("status.core_offline"));
                 }
                 if let Some(conn) = &self.conn {
                     ui.separator();
-                    ui.small(format!("core 路径：{}", conn.core_path.display()));
+                    ui.small(self.trf(
+                        "status.core_path",
+                        &[("path", &conn.core_path.display().to_string())],
+                    ));
                 }
                 let active = self
                     .jobs
@@ -501,14 +532,14 @@ impl eframe::App for MzApp {
                     .count();
                 if active > 0 {
                     ui.separator();
-                    ui.label(format!("{active} 个任务进行中"));
+                    ui.label(self.trf("status.active_jobs", &[("count", &active.to_string())]));
                 }
             });
         });
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(fatal) = self.fatal.clone() {
                 ui.colored_label(egui::Color32::from_rgb(200, 60, 60), fatal);
-                if ui.button("重新连接 core").clicked() {
+                if ui.button(self.tr("action.reconnect")).clicked() {
                     self.connect();
                 }
                 ui.separator();

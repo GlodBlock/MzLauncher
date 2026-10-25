@@ -2,13 +2,14 @@ use eframe::egui;
 use serde_json::json;
 
 use crate::app::MzApp;
+use crate::pages::home::account_kind_key;
 
 impl MzApp {
     pub fn accounts_page(&mut self, ui: &mut egui::Ui) {
-        ui.heading("账号");
-        ui.label("登录使用微软官方页面完成，MzLauncher 不会要求你输入微软密码。");
+        ui.heading(self.tr("accounts.title"));
+        ui.label(self.tr("accounts.privacy"));
         ui.add_space(8.0);
-        if ui.button("使用微软账号登录").clicked() {
+        if ui.button(self.tr("accounts.login")).clicked() {
             self.login = None;
             self.call(
                 "account.begin_login",
@@ -20,14 +21,14 @@ impl MzApp {
             ui.separator();
             match session.status.as_str() {
                 "waiting" => {
-                    ui.label("等待你在浏览器中完成授权……");
+                    ui.label(self.tr("accounts.waiting"));
                     ui.horizontal(|ui| {
-                        ui.label("若浏览器未打开，");
-                        if ui.button("点击这里").clicked() {
+                        ui.label(self.tr("accounts.browser_hint"));
+                        if ui.button(self.tr("accounts.open_browser")).clicked() {
                             let _ = open::that(&session.authorization_url);
                         }
                     });
-                    if ui.button("取消登录").clicked() {
+                    if ui.button(self.tr("accounts.cancel_login")).clicked() {
                         self.call(
                             "account.cancel_login",
                             json!({"id": session.id}),
@@ -37,43 +38,41 @@ impl MzApp {
                     }
                 }
                 "completed" => {
-                    ui.label("登录成功。");
+                    ui.label(self.tr("accounts.login_success"));
                     if let Some(account_id) = &session.account_id {
-                        ui.small(format!("账号 ID：{account_id}"));
+                        ui.small(self.trf("accounts.id", &[("id", account_id)]));
                     }
                 }
                 status => {
                     ui.colored_label(
                         egui::Color32::from_rgb(200, 60, 60),
-                        format!(
-                            "登录未完成：{} {}",
-                            status,
-                            session.error.unwrap_or_default()
+                        self.trf(
+                            "accounts.login_failed",
+                            &[
+                                ("status", status),
+                                ("error", &session.error.unwrap_or_default()),
+                            ],
                         ),
                     );
                 }
             }
         }
         ui.separator();
-        ui.heading("已有账号");
+        ui.heading(self.tr("accounts.existing"));
         if self.accounts.is_empty() {
-            ui.label("暂无账号");
+            ui.label(self.tr("accounts.empty"));
         }
         let accounts = self.accounts.clone();
         for account in accounts {
             ui.horizontal(|ui| {
                 ui.strong(&account.name);
-                ui.label(if account.kind == "microsoft" {
-                    "微软账号"
+                ui.label(self.tr(account_kind_key(&account.kind)));
+                ui.label(self.tr(if account.verified {
+                    "accounts.verified"
                 } else {
-                    "本地账号"
-                });
-                ui.label(if account.verified {
-                    "已验证"
-                } else {
-                    "未验证"
-                });
-                if ui.button("设为默认").clicked() {
+                    "accounts.unverified"
+                }));
+                if ui.button(self.tr("accounts.set_default")).clicked() {
                     self.call(
                         "account.select",
                         json!({"id": account.id}),
@@ -85,14 +84,14 @@ impl MzApp {
                         serde_json::Value::Null,
                     );
                 }
-                if ui.button("刷新凭据").clicked() {
+                if ui.button(self.tr("accounts.refresh_credentials")).clicked() {
                     self.call(
                         "account.refresh",
                         json!({"id": account.id}),
                         serde_json::Value::Null,
                     );
                 }
-                if ui.button("退出登录").clicked() {
+                if ui.button(self.tr("accounts.logout")).clicked() {
                     self.call(
                         "account.logout",
                         json!({"id": account.id}),

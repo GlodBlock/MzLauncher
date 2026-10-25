@@ -49,6 +49,36 @@ impl MzApp {
             );
 
             ui.add_space(8.0);
+            ui.heading("API 密钥");
+            ui.label("密钥由 core 保存到操作系统凭据库，不会写入配置文件，也不会回显。");
+            ui.horizontal(|ui| {
+                ui.label("CurseForge API Key：");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.curseforge_key_input)
+                        .password(true)
+                        .desired_width(320.0),
+                );
+                if ui
+                    .add_enabled(
+                        !self.curseforge_key_input.trim().is_empty(),
+                        egui::Button::new("保存密钥"),
+                    )
+                    .clicked()
+                {
+                    self.call(
+                        "provider.curseforge_key.set",
+                        serde_json::json!({"key": self.curseforge_key_input.trim()}),
+                        Value::Null,
+                    );
+                }
+                if ui.button("删除密钥").clicked() {
+                    self.call("provider.curseforge_key.delete", Value::Null, Value::Null);
+                }
+            });
+            ui.small("微软客户端 ID 留空时使用 MZLAUNCHER_MICROSOFT_CLIENT_ID 环境变量；在此处填写并保存后无需再设置环境变量。");
+            optional_text(ui, "微软客户端 ID：", &mut draft.microsoft_client_id, 320.0);
+
+            ui.add_space(8.0);
             ui.heading("镜像源");
             for (label, field) in [
                 ("版本清单", &mut draft.endpoints.version_manifest),

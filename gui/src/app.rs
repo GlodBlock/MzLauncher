@@ -72,6 +72,7 @@ pub struct MzApp {
     pub exit_codes: HashMap<String, i32>,
     pub settings: Option<AppSettings>,
     pub settings_draft: Option<AppSettings>,
+    pub curseforge_key_input: String,
     pub pending: HashMap<String, Pending>,
     pub instance_search: String,
     pub grid_selected: Option<String>,
@@ -106,6 +107,7 @@ impl MzApp {
             exit_codes: HashMap::new(),
             settings: None,
             settings_draft: None,
+            curseforge_key_input: String::new(),
             pending: HashMap::new(),
             instance_search: String::new(),
             grid_selected: None,
@@ -385,6 +387,13 @@ impl MzApp {
                 self.notice = Some("账号状态已更新".into());
             }
             "java.list" => self.java_candidates = parse_list(result),
+            "provider.curseforge_key.set" => {
+                self.curseforge_key_input.clear();
+                self.notice = Some("CurseForge API 密钥已保存到系统凭据库".into());
+            }
+            "provider.curseforge_key.delete" => {
+                self.notice = Some("CurseForge API 密钥已删除".into());
+            }
             "mod.search" => {
                 self.browser.results = parse_list(result);
                 self.browser.searching = false;

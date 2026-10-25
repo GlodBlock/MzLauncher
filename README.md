@@ -32,6 +32,10 @@ In the gui you can then log in with a Microsoft account, create an instance or i
 
 core communicates with gui over stdin/stdout and is not used as a command line tool directly. Any program that can read and write stdio can also drive core through the protocol.
 
+### Package
+
+On Windows, run `powershell -File scripts/package.ps1` to build three zip packages in `dist/`: `core` (headless core only), `gui` (interface only) and `full` (gui + core; extract and double-click `mzlauncher-gui.exe` to run).
+
 ## License
 
 This project is released under the [GNU Lesser General Public License v3.0](LICENSE).

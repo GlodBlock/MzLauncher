@@ -1,5 +1,6 @@
 # Rust
 /target
+/dist
 
 # 构建产物
 *.exe

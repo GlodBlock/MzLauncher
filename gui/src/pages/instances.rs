@@ -7,6 +7,8 @@ use crate::pages::home::{loader_label, status_label};
 
 impl MzApp {
     pub fn open_create_dialog(&mut self) {
+        self.page = crate::app::Page::Instances;
+        self.selected_instance = None;
         self.create = Some(CreateDialog {
             name: String::new(),
             game_version: String::new(),

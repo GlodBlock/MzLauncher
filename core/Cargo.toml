@@ -1,0 +1,51 @@
+[package]
+name = "mzlauncher-core"
+version = "0.1.0"
+description = "Independent core process for MzLauncher"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+debug = []
+
+[dependencies]
+anyhow = "1.0"
+async-trait = "0.1"
+atomicwrites = "0.4"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["clock", "serde"] }
+directories = "6.0"
+flate2 = "1.0"
+fs2 = "0.4"
+futures-util = "0.3"
+hex = "0.4"
+keyring = "3.6"
+open = "5.3"
+parking_lot = "0.12"
+percent-encoding = "2.3"
+rand = "0.8"
+regex = "1.11"
+reqwest = { version = "0.12", default-features = false, features = ["gzip", "json", "rustls-tls", "stream"] }
+rusqlite = { version = "0.32", features = ["bundled", "chrono"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha1 = "0.10"
+sha2 = "0.10"
+tar = "0.4"
+tempfile = "3.15"
+thiserror = "2.0"
+tokio = { version = "1.43", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = { version = "2.5", features = ["serde"] }
+uuid = { version = "1.12", features = ["serde", "v4"] }
+zeroize = { version = "1.8", features = ["derive"] }
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem"] }
+
+[dev-dependencies]

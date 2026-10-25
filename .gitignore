@@ -1,0 +1,10 @@
+# Rust
+/target
+
+# 构建产物
+*.exe
+*.dll
+*.pdb
+
+# 文档与模型提示词
+doc/

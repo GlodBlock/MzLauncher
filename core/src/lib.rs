@@ -1,0 +1,23 @@
+pub mod auth;
+pub mod config;
+pub mod credentials;
+pub mod download;
+pub mod error;
+pub mod instance;
+pub mod java;
+pub mod job;
+pub mod launch;
+pub mod loader;
+pub mod model;
+pub mod modpack;
+pub mod mods;
+pub mod paths;
+pub mod protocol;
+pub mod server;
+pub mod store;
+pub mod version;
+
+pub const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const PROTOCOL_VERSION: u32 = 1;
+pub const DATA_VERSION: u32 = 1;
+pub const DEBUG_AUTH: bool = cfg!(feature = "debug");

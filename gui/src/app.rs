@@ -87,6 +87,7 @@ pub struct MzApp {
     pub mods: HashMap<String, Vec<InstalledMod>>,
     pub java_candidates: Vec<JavaInfo>,
     pub preflight: HashMap<String, Value>,
+    pub core_data_dir: Option<String>,
     pub confirm_delete: Option<String>,
     pub browser: ModBrowser,
     pub modpack: ModpackWizard,
@@ -95,6 +96,8 @@ pub struct MzApp {
 
 impl MzApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+        crate::log::init();
+        crate::log::write("gui starting");
         let mut app = Self {
             i18n: I18n::load(),
             conn: None,
@@ -123,6 +126,7 @@ impl MzApp {
             mods: HashMap::new(),
             java_candidates: Vec::new(),
             preflight: HashMap::new(),
+            core_data_dir: None,
             confirm_delete: None,
             browser: ModBrowser {
                 provider: "modrinth".into(),
@@ -170,6 +174,7 @@ impl MzApp {
                 );
             }
             Err((key, detail)) => {
+                crate::log::write(&format!("core spawn failed: {key} {detail}"));
                 self.fatal = Some(self.trf(&key, &[("detail", &detail)]));
             }
         }
@@ -245,6 +250,7 @@ impl MzApp {
                 }
                 CoreMessage::Event(event) => self.handle_event(event),
                 CoreMessage::Disconnected(key, detail) => {
+                    crate::log::write(&format!("core disconnected: {key} {detail}"));
                     let reason = self.trf(&key, &[("detail", &detail)]);
                     self.fatal = Some(self.trf("error.disconnected_stale", &[("reason", &reason)]));
                     self.conn = None;
@@ -271,14 +277,8 @@ impl MzApp {
             "modpack.analyze" => self.modpack.analyzing = false,
             _ => {}
         }
-        self.notice = Some(self.trf(
-            "notice.request_failed",
-            &[
-                ("method", &pending.method),
-                ("message", &message),
-                ("code", code),
-            ],
-        ));
+        crate::log::write(&format!("{} failed: {message} ({code})", pending.method));
+        self.notice = Some(self.trf("notice.request_failed_log", &[("method", &pending.method)]));
     }
 
     fn handle_event(&mut self, event: Value) {
@@ -331,6 +331,14 @@ impl MzApp {
             "system.handshake" => {
                 self.handshake = serde_json::from_value(result).ok();
                 self.refresh_snapshots();
+                self.call("system.diagnostics", Value::Null, Value::Null);
+            }
+            "system.diagnostics" => {
+                self.core_data_dir = result
+                    .get("extra")
+                    .and_then(|extra| extra.get("dataDirectory"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
             }
             "account.list" => self.accounts = parse_list(result),
             "instance.list" => {

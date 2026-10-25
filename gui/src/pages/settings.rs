@@ -165,6 +165,29 @@ impl MzApp {
             }
 
             ui.add_space(8.0);
+            ui.heading(self.tr("settings.logs"));
+            if let Some(dir) = &self.core_data_dir {
+                let path = format!("{dir}/logs/core.log");
+                ui.horizontal(|ui| {
+                    ui.label(self.trf("settings.core_log", &[("path", &path)]));
+                    if ui.button(self.tr("settings.open_logs")).clicked() {
+                        let _ = open::that(format!("{dir}/logs"));
+                    }
+                });
+            }
+            if let Some(path) = crate::log::path() {
+                let display = path.display().to_string();
+                ui.horizontal(|ui| {
+                    ui.label(self.trf("settings.gui_log", &[("path", &display)]));
+                    if ui.button(self.tr("settings.open_logs")).clicked() {
+                        if let Some(parent) = path.parent() {
+                            let _ = open::that(parent);
+                        }
+                    }
+                });
+            }
+
+            ui.add_space(8.0);
             ui.heading(self.tr("settings.about"));
             ui.label(self.trf(
                 "settings.gui_version",

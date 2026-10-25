@@ -3,6 +3,7 @@
 mod app;
 mod client;
 mod i18n;
+mod log;
 mod model;
 mod pages;
 

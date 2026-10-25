@@ -32,9 +32,15 @@ impl MzApp {
             if ui.button("新建实例").clicked() {
                 self.open_create_dialog();
             }
+            if ui.button("导入整合包").clicked() {
+                self.page = crate::app::Page::Modpack;
+            }
             ui.separator();
-            ui.label("搜索：");
-            ui.text_edit_singleline(&mut self.instance_search);
+            ui.add(
+                egui::TextEdit::singleline(&mut self.instance_search)
+                    .desired_width(200.0)
+                    .hint_text("搜索实例"),
+            );
         });
         ui.separator();
         if self.instances.is_empty() {
@@ -47,51 +53,134 @@ impl MzApp {
             .filter(|instance| instance.name.to_lowercase().contains(&search))
             .cloned()
             .collect();
-        let mut open_detail = None;
+        if let Some(selected) = self.grid_selected.clone() {
+            self.instance_action_panel(ui.ctx(), &selected);
+        }
+        let mut clicked = None;
         egui::ScrollArea::vertical().show(ui, |ui| {
-            for instance in instances {
-                egui::Frame::group(ui.style()).show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.strong(&instance.name);
-                        ui.label(format!(
-                            "{} · {}{}",
-                            instance.game_version,
-                            loader_label(&instance.loader),
-                            instance
-                                .loader_version
-                                .as_deref()
-                                .map(|version| format!(" {version}"))
-                                .unwrap_or_default()
-                        ));
-                        ui.label(status_label(
-                            &instance.install_status,
-                            self.games.get(&instance.id).map(String::as_str),
-                        ));
-                        self.instance_buttons(ui, &instance.id, &instance.install_status);
-                        if ui.button("详情").clicked() {
-                            open_detail = Some(instance.id.clone());
-                        }
-                        if ui.button("复制").clicked() {
-                            self.call(
-                                "instance.copy",
-                                json!({"id": instance.id, "name": format!("{} 副本", instance.name)}),
-                                Value::Null,
-                            );
-                        }
-                        if ui.button("删除").clicked() {
-                            self.confirm_delete = Some(instance.id.clone());
-                        }
-                    });
-                });
-                ui.add_space(4.0);
-            }
+            ui.horizontal_wrapped(|ui| {
+                for instance in instances {
+                    let selected = self.grid_selected.as_deref() == Some(instance.id.as_str());
+                    if instance_tile(ui, &instance, selected).clicked() {
+                        clicked = Some(instance.id.clone());
+                    }
+                }
+            });
         });
-        if let Some(id) = open_detail {
-            self.selected_instance = Some(id);
-            self.detail_tab = DetailTab::Overview;
+        if clicked.is_some() {
+            self.grid_selected = clicked;
         }
         self.create_dialog(ui.ctx());
         self.delete_dialog(ui.ctx());
+    }
+
+    fn instance_action_panel(&mut self, ctx: &egui::Context, id: &str) {
+        let Some(instance) = self.instance(id).cloned() else {
+            self.grid_selected = None;
+            return;
+        };
+        egui::SidePanel::right("instance_actions")
+            .resizable(false)
+            .exact_width(240.0)
+            .show(ctx, |ui| {
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.heading(&instance.name);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button("×").clicked() {
+                            self.grid_selected = None;
+                        }
+                    });
+                });
+                ui.label(format!(
+                    "{} · {}{}",
+                    instance.game_version,
+                    loader_label(&instance.loader),
+                    instance
+                        .loader_version
+                        .as_deref()
+                        .map(|version| format!(" {version}"))
+                        .unwrap_or_default()
+                ));
+                ui.label(status_label(
+                    &instance.install_status,
+                    self.games.get(&instance.id).map(String::as_str),
+                ));
+                ui.add_space(12.0);
+                let width = ui.available_width();
+                let running = matches!(
+                    self.games.get(id).map(String::as_str),
+                    Some("running" | "starting")
+                );
+                if running {
+                    if ui
+                        .add_sized([width, 32.0], egui::Button::new("停止游戏"))
+                        .clicked()
+                    {
+                        self.call("game.stop", json!({"id": id}), json!({"instanceId": id}));
+                    }
+                } else if ui
+                    .add_sized(
+                        [width, 32.0],
+                        egui::Button::new(if instance.install_status == "installed" {
+                            "启动游戏"
+                        } else {
+                            "安装并准备启动"
+                        }),
+                    )
+                    .clicked()
+                {
+                    if instance.install_status == "installed" {
+                        self.call("game.launch", json!({"id": id}), json!({"instanceId": id}));
+                    } else {
+                        self.call(
+                            "instance.install",
+                            json!({"id": id}),
+                            json!({"instanceId": id}),
+                        );
+                    }
+                }
+                if ui
+                    .add_sized([width, 30.0], egui::Button::new("安装 / 修复"))
+                    .clicked()
+                {
+                    self.call(
+                        "instance.install",
+                        json!({"id": id}),
+                        json!({"instanceId": id}),
+                    );
+                }
+                if ui
+                    .add_sized([width, 30.0], egui::Button::new("打开详情"))
+                    .clicked()
+                {
+                    self.selected_instance = Some(id.to_owned());
+                    self.detail_tab = DetailTab::Overview;
+                }
+                if ui
+                    .add_sized([width, 30.0], egui::Button::new("创建副本"))
+                    .clicked()
+                {
+                    self.call(
+                        "instance.copy",
+                        json!({"id": id, "name": format!("{} 副本", instance.name)}),
+                        Value::Null,
+                    );
+                }
+                ui.add_space(8.0);
+                if ui
+                    .add_sized(
+                        [width, 30.0],
+                        egui::Button::new(
+                            egui::RichText::new("删除实例")
+                                .color(egui::Color32::from_rgb(190, 50, 50)),
+                        ),
+                    )
+                    .clicked()
+                {
+                    self.confirm_delete = Some(id.to_owned());
+                }
+            });
     }
 
     fn delete_dialog(&mut self, ctx: &egui::Context) {
@@ -472,6 +561,108 @@ impl MzApp {
         }
         self.draft_instance = Some(draft);
     }
+}
+
+fn instance_tile(ui: &mut egui::Ui, instance: &Instance, selected: bool) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(136.0, 132.0), egui::Sense::click());
+    let accent = egui::Color32::from_rgb(59, 130, 246);
+    let fill = if selected {
+        egui::Color32::from_rgb(227, 238, 253)
+    } else if response.hovered() {
+        egui::Color32::from_rgb(240, 244, 250)
+    } else {
+        egui::Color32::WHITE
+    };
+    let stroke = if selected || response.hovered() {
+        accent
+    } else {
+        egui::Color32::from_rgb(228, 230, 234)
+    };
+    ui.painter().rect(
+        rect,
+        egui::CornerRadius::same(8),
+        fill,
+        egui::Stroke::new(1.0_f32, stroke),
+        egui::StrokeKind::Inside,
+    );
+
+    let icon = egui::Rect::from_center_size(
+        egui::pos2(rect.center().x, rect.top() + 34.0),
+        egui::vec2(48.0, 48.0),
+    );
+    let (grass, dirt) = instance_colors(&instance.name);
+    ui.painter().rect(
+        icon,
+        egui::CornerRadius::same(8),
+        dirt,
+        egui::Stroke::NONE,
+        egui::StrokeKind::Inside,
+    );
+    ui.painter().rect(
+        egui::Rect::from_min_max(icon.min, egui::pos2(icon.max.x, icon.min.y + 15.0)),
+        egui::CornerRadius::same(6),
+        grass,
+        egui::Stroke::NONE,
+        egui::StrokeKind::Inside,
+    );
+
+    let mut name = instance.name.clone();
+    if name.chars().count() > 14 {
+        name = format!("{}…", name.chars().take(13).collect::<String>());
+    }
+    ui.painter().text(
+        egui::pos2(rect.center().x, rect.top() + 64.0),
+        egui::Align2::CENTER_TOP,
+        name,
+        egui::FontId::proportional(13.0),
+        egui::Color32::from_rgb(35, 38, 43),
+    );
+    ui.painter().text(
+        egui::pos2(rect.center().x, rect.top() + 86.0),
+        egui::Align2::CENTER_TOP,
+        format!(
+            "{} · {}",
+            instance.game_version,
+            loader_label(&instance.loader)
+        ),
+        egui::FontId::proportional(11.0),
+        egui::Color32::from_rgb(120, 126, 134),
+    );
+    ui.painter().text(
+        egui::pos2(rect.center().x, rect.top() + 106.0),
+        egui::Align2::CENTER_TOP,
+        match instance.install_status.as_str() {
+            "installed" => "可启动",
+            "installing" => "安装中",
+            _ => "未安装",
+        },
+        egui::FontId::proportional(11.0),
+        if instance.install_status == "installed" {
+            egui::Color32::from_rgb(34, 150, 84)
+        } else {
+            egui::Color32::from_rgb(150, 120, 40)
+        },
+    );
+    response
+}
+
+fn instance_colors(name: &str) -> (egui::Color32, egui::Color32) {
+    let hash = name.bytes().fold(0_u32, |hash, byte| {
+        hash.wrapping_mul(31).wrapping_add(byte as u32)
+    });
+    let palette = [
+        ((104, 168, 76), (134, 96, 67)),
+        ((86, 142, 190), (110, 94, 78)),
+        ((150, 110, 180), (122, 92, 70)),
+        ((192, 146, 62), (128, 100, 66)),
+        ((76, 164, 152), (118, 96, 74)),
+        ((176, 96, 96), (126, 94, 68)),
+    ];
+    let (grass, dirt) = palette[(hash % palette.len() as u32) as usize];
+    (
+        egui::Color32::from_rgb(grass.0, grass.1, grass.2),
+        egui::Color32::from_rgb(dirt.0, dirt.1, dirt.2),
+    )
 }
 
 fn issue_text(issue: &Value) -> String {

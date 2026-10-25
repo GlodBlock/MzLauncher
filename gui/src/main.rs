@@ -20,9 +20,32 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(|cc| {
             install_cjk_fonts(&cc.egui_ctx);
+            install_style(&cc.egui_ctx);
             Ok(Box::new(app::MzApp::new(cc)))
         }),
     )
+}
+
+fn install_style(ctx: &egui::Context) {
+    let mut style = (*ctx.style()).clone();
+    style.visuals = egui::Visuals::light();
+    style.visuals.panel_fill = egui::Color32::from_rgb(247, 248, 250);
+    style.visuals.window_fill = egui::Color32::WHITE;
+    style.visuals.extreme_bg_color = egui::Color32::from_rgb(240, 241, 244);
+    style.visuals.selection.bg_fill = egui::Color32::from_rgb(59, 130, 246);
+    style.visuals.hyperlink_color = egui::Color32::from_rgb(59, 130, 246);
+    for widget in [
+        &mut style.visuals.widgets.active,
+        &mut style.visuals.widgets.hovered,
+        &mut style.visuals.widgets.inactive,
+        &mut style.visuals.widgets.noninteractive,
+        &mut style.visuals.widgets.open,
+    ] {
+        widget.corner_radius = egui::CornerRadius::same(6);
+    }
+    style.spacing.item_spacing = egui::vec2(10.0, 8.0);
+    style.spacing.button_padding = egui::vec2(12.0, 6.0);
+    ctx.set_style(style);
 }
 
 fn install_cjk_fonts(ctx: &egui::Context) {

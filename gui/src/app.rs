@@ -74,6 +74,7 @@ pub struct MzApp {
     pub settings_draft: Option<AppSettings>,
     pub pending: HashMap<String, Pending>,
     pub instance_search: String,
+    pub grid_selected: Option<String>,
     pub selected_instance: Option<String>,
     pub create: Option<CreateDialog>,
     pub versions: Vec<VersionSummary>,
@@ -107,6 +108,7 @@ impl MzApp {
             settings_draft: None,
             pending: HashMap::new(),
             instance_search: String::new(),
+            grid_selected: None,
             selected_instance: None,
             create: None,
             versions: Vec::new(),
@@ -435,10 +437,15 @@ impl eframe::App for MzApp {
         }
         ctx.request_repaint_after(std::time::Duration::from_millis(500));
 
-        egui::TopBottomPanel::top("nav").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading("MzLauncher");
-                ui.separator();
+        egui::SidePanel::left("nav")
+            .resizable(false)
+            .exact_width(168.0)
+            .show(ctx, |ui| {
+                ui.add_space(12.0);
+                ui.vertical_centered(|ui| {
+                    ui.heading(egui::RichText::new("MzLauncher").size(22.0));
+                });
+                ui.add_space(16.0);
                 for (page, label) in [
                     (Page::Home, "首页"),
                     (Page::Instances, "实例"),
@@ -448,12 +455,22 @@ impl eframe::App for MzApp {
                     (Page::Accounts, "账号"),
                     (Page::Settings, "设置"),
                 ] {
-                    if ui.selectable_label(self.page == page, label).clicked() {
+                    let selected = self.page == page;
+                    if ui
+                        .add_sized(
+                            [ui.available_width(), 34.0],
+                            egui::SelectableLabel::new(
+                                selected,
+                                egui::RichText::new(label).size(15.0),
+                            ),
+                        )
+                        .clicked()
+                    {
                         self.page = page;
                     }
+                    ui.add_space(2.0);
                 }
             });
-        });
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if let Some(handshake) = &self.handshake {

@@ -60,7 +60,6 @@ impl MzApp {
 
             ui.add_space(8.0);
             ui.heading(self.tr("settings.api_keys"));
-            ui.label(self.tr("settings.api_keys_hint"));
             ui.horizontal(|ui| {
                 ui.label(self.tr("settings.curseforge_key"));
                 ui.add(
@@ -85,7 +84,6 @@ impl MzApp {
                     self.call("provider.curseforge_key.delete", Value::Null, Value::Null);
                 }
             });
-            ui.small(self.tr("settings.client_id_hint"));
             self.optional_text(
                 ui,
                 "settings.client_id",
@@ -120,7 +118,7 @@ impl MzApp {
                 ),
             ] {
                 ui.horizontal(|ui| {
-                    ui.label(format!("{}：", self.tr(key)));
+                    ui.label(self.tr(key));
                     ui.add(egui::TextEdit::singleline(field).desired_width(420.0));
                 });
             }

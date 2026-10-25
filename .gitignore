@@ -9,4 +9,7 @@
 
 # 文档与模型提示词
 doc/
+
+# 本地凭证（不提交）
+/secret
 reference/

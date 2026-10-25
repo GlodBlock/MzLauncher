@@ -28,6 +28,7 @@ impl CurseForge {
             .ok()
             .filter(|key| !key.is_empty())
             .or_else(|| self.credentials.get("provider-curseforge").ok())
+            .or_else(crate::secret::builtin_curseforge_api_key)
             .ok_or_else(|| {
                 CoreError::Configuration(
                     "CurseForge requires MZLAUNCHER_CURSEFORGE_API_KEY or a key stored in the system keyring"

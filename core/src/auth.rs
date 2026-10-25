@@ -532,6 +532,7 @@ impl AuthService {
                     .ok()
                     .filter(|value| !value.trim().is_empty())
             })
+            .or_else(crate::secret::builtin_microsoft_client_id)
             .or_else(|| option_env!("MZLAUNCHER_DEFAULT_CLIENT_ID").map(str::to_owned))
             .ok_or_else(|| {
                 CoreError::Configuration(

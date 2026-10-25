@@ -13,6 +13,7 @@ pub mod modpack;
 pub mod mods;
 pub mod paths;
 pub mod protocol;
+mod secret;
 pub mod server;
 pub mod store;
 pub mod version;

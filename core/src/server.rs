@@ -39,6 +39,7 @@ pub struct Server {
     launch: LaunchService,
     mods: ModService,
     modpacks: ModpackService,
+    runtime_root: Arc<parking_lot::RwLock<PathBuf>>,
 }
 
 enum Outgoing {
@@ -54,11 +55,13 @@ impl Server {
         let store = Arc::new(Store::open(&paths)?);
         let jobs = JobManager::new(store.clone(), config.get().download.max_concurrent)?;
         let downloader = Downloader::new(config.get().download.clone())?;
+        let runtime_root = Arc::new(parking_lot::RwLock::new(config.get().runtime_root(&paths)));
         let instances = InstanceService::new(
             paths.clone(),
             store.clone(),
             downloader.clone(),
             config.get().endpoints.clone(),
+            runtime_root.clone(),
         );
         let auth = AuthService::new(config.clone(), store.clone())?;
         let launch = LaunchService::new(
@@ -93,6 +96,7 @@ impl Server {
             launch,
             mods,
             modpacks,
+            runtime_root,
         })
     }
 
@@ -254,9 +258,15 @@ impl Server {
             "settings.get" => Ok(serde_json::to_value(self.config.get())?),
             "settings.update" => {
                 let config: AppConfig = parse_params(&request.params)?;
-                Ok(serde_json::to_value(self.config.replace(config)?)?)
+                let config = self.config.replace(config)?;
+                *self.runtime_root.write() = config.runtime_root(&self.paths);
+                Ok(serde_json::to_value(config)?)
             }
-            "settings.reset" => Ok(serde_json::to_value(self.config.reset()?)?),
+            "settings.reset" => {
+                let config = self.config.reset()?;
+                *self.runtime_root.write() = config.runtime_root(&self.paths);
+                Ok(serde_json::to_value(config)?)
+            }
             "account.list" => Ok(serde_json::to_value(self.auth.list()?)?),
             "account.current" => {
                 let id = self

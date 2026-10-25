@@ -17,8 +17,14 @@ async fn fabric_profile_can_be_read_and_merged_for_an_instance() {
     paths.initialize().unwrap();
     let store = Arc::new(Store::open(&paths).unwrap());
     let downloader = Downloader::new(DownloadConfig::default()).unwrap();
-    let instances =
-        InstanceService::new(paths, store.clone(), downloader, EndpointConfig::default());
+    let runtime_root = Arc::new(parking_lot::RwLock::new(paths.runtimes.clone()));
+    let instances = InstanceService::new(
+        paths,
+        store.clone(),
+        downloader,
+        EndpointConfig::default(),
+        runtime_root,
+    );
     let instance = instances
         .create(CreateInstanceParams {
             name: "Fabric live".into(),

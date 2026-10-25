@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::PathBuf;
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -15,6 +16,8 @@ pub struct AppConfig {
     pub version: u32,
     pub download: DownloadConfig,
     pub endpoints: EndpointConfig,
+    #[serde(default)]
+    pub runtime_dir: Option<PathBuf>,
     pub microsoft_client_id: Option<String>,
     pub default_account_id: Option<Uuid>,
 }
@@ -25,6 +28,7 @@ impl Default for AppConfig {
             version: DATA_VERSION,
             download: DownloadConfig::default(),
             endpoints: EndpointConfig::default(),
+            runtime_dir: None,
             microsoft_client_id: std::env::var("MZLAUNCHER_MICROSOFT_CLIENT_ID").ok(),
             default_account_id: None,
         }
@@ -151,7 +155,20 @@ impl ConfigManager {
 }
 
 impl AppConfig {
+    pub fn runtime_root(&self, paths: &AppPaths) -> PathBuf {
+        self.runtime_dir
+            .clone()
+            .unwrap_or_else(|| paths.runtimes.clone())
+    }
+
     pub fn validate(&self) -> CoreResult<()> {
+        if let Some(dir) = &self.runtime_dir {
+            if !dir.is_absolute() {
+                return Err(CoreError::InvalidInput(
+                    "Java runtime directory must be an absolute path".into(),
+                ));
+            }
+        }
         if !(1..=32).contains(&self.download.max_concurrent) {
             return Err(CoreError::InvalidInput(
                 "download concurrency must be between 1 and 32".into(),
@@ -215,5 +232,14 @@ mod tests {
         let mut config = AppConfig::default();
         config.download.proxy_url = Some("http://user:password@localhost:8080".into());
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_relative_runtime_directory() {
+        let mut config = AppConfig::default();
+        config.runtime_dir = Some(PathBuf::from("runtimes"));
+        assert!(config.validate().is_err());
+        config.runtime_dir = None;
+        assert!(config.validate().is_ok());
     }
 }

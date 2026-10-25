@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::Utc;
+use parking_lot::RwLock;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -31,9 +32,10 @@ impl InstanceService {
         store: Arc<Store>,
         downloader: Downloader,
         endpoints: EndpointConfig,
+        runtime_root: Arc<RwLock<PathBuf>>,
     ) -> Self {
         let versions = VersionService::new(paths.clone(), downloader.clone(), endpoints.clone());
-        let java = JavaManager::new(paths.clone(), downloader.clone(), endpoints.clone());
+        let java = JavaManager::new(downloader.clone(), endpoints.clone(), runtime_root);
         let loaders = LoaderService::new(paths.clone(), downloader, endpoints, java.clone());
         Self {
             paths,
@@ -341,7 +343,14 @@ mod tests {
         paths.initialize().unwrap();
         let store = Arc::new(Store::open(&paths).unwrap());
         let downloader = Downloader::new(DownloadConfig::default()).unwrap();
-        let service = InstanceService::new(paths, store, downloader, EndpointConfig::default());
+        let runtime_root = Arc::new(RwLock::new(paths.runtimes.clone()));
+        let service = InstanceService::new(
+            paths,
+            store,
+            downloader,
+            EndpointConfig::default(),
+            runtime_root,
+        );
         (temp, service)
     }
 

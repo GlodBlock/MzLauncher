@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::{stream, TryStreamExt};
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -28,9 +29,9 @@ pub struct JavaInfo {
 
 #[derive(Clone)]
 pub struct JavaManager {
-    paths: AppPaths,
     downloader: Downloader,
     endpoints: EndpointConfig,
+    runtime_root: Arc<RwLock<PathBuf>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -64,11 +65,15 @@ struct RuntimeDownloads {
 }
 
 impl JavaManager {
-    pub fn new(paths: AppPaths, downloader: Downloader, endpoints: EndpointConfig) -> Self {
+    pub fn new(
+        downloader: Downloader,
+        endpoints: EndpointConfig,
+        runtime_root: Arc<RwLock<PathBuf>>,
+    ) -> Self {
         Self {
-            paths,
             downloader,
             endpoints,
+            runtime_root,
         }
     }
 
@@ -150,8 +155,8 @@ impl JavaManager {
         }
         if let Some(component) = &requirement.component {
             let managed = self
-                .paths
-                .runtimes
+                .runtime_root
+                .read()
                 .join(component)
                 .join("bin")
                 .join(java_executable());
@@ -215,7 +220,7 @@ impl JavaManager {
                     runtime_platform()
                 ))
             })?;
-        let root = safe_join(&self.paths.runtimes, component)?;
+        let root = safe_join(&self.runtime_root.read().clone(), component)?;
         let manifest_path = root.join("runtime.json");
         self.downloader
             .download(

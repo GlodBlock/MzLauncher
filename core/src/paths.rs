@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use atomicwrites::{AllowOverwrite, AtomicFile};
+#[cfg(not(windows))]
 use directories::ProjectDirs;
 use uuid::Uuid;
 
@@ -24,12 +25,7 @@ impl AppPaths {
     pub fn discover(override_root: Option<PathBuf>) -> CoreResult<Self> {
         let root = match override_root {
             Some(path) => path,
-            None => ProjectDirs::from("com", "MzLauncher", "MzLauncher")
-                .ok_or_else(|| {
-                    CoreError::Configuration("cannot determine the platform data directory".into())
-                })?
-                .data_local_dir()
-                .join("core"),
+            None => default_root()?,
         };
         Ok(Self::new(root))
     }
@@ -86,6 +82,25 @@ impl AppPaths {
     pub fn lock_file(&self) -> PathBuf {
         self.state.join("core.lock")
     }
+}
+
+#[cfg(windows)]
+fn default_root() -> CoreResult<PathBuf> {
+    let executable = std::env::current_exe().map_err(CoreError::Io)?;
+    let directory = executable
+        .parent()
+        .ok_or_else(|| CoreError::Configuration("cannot determine the install directory".into()))?;
+    Ok(directory.to_path_buf())
+}
+
+#[cfg(not(windows))]
+fn default_root() -> CoreResult<PathBuf> {
+    Ok(ProjectDirs::from("com", "MzLauncher", "MzLauncher")
+        .ok_or_else(|| {
+            CoreError::Configuration("cannot determine the platform data directory".into())
+        })?
+        .data_local_dir()
+        .join("core"))
 }
 
 pub fn safe_relative_path(value: &str) -> CoreResult<PathBuf> {

@@ -10,13 +10,27 @@ static LOGGER: OnceLock<Mutex<Option<Logger>>> = OnceLock::new();
 
 pub fn init() {
     let logger = LOGGER.get_or_init(|| Mutex::new(None));
-    let dirs = directories::ProjectDirs::from("com", "MzLauncher", "MzLauncher");
     let mut slot = logger.lock().unwrap();
     if slot.is_some() {
         return;
     }
-    let Some(dirs) = dirs else { return };
-    let directory = dirs.data_local_dir().join("gui").join("logs");
+    let directory = if cfg!(windows) {
+        std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|dir| dir.join("logs")))
+    } else {
+        None
+    };
+    let directory = match directory {
+        Some(directory) => directory,
+        None => {
+            let Some(dirs) = directories::ProjectDirs::from("com", "MzLauncher", "MzLauncher")
+            else {
+                return;
+            };
+            dirs.data_local_dir().join("gui").join("logs")
+        }
+    };
     if std::fs::create_dir_all(&directory).is_err() {
         return;
     }

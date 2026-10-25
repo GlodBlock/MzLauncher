@@ -574,7 +574,13 @@ async fn parse_response<T: serde::de::DeserializeOwned>(
 ) -> CoreResult<T> {
     let status = response.status();
     if !status.is_success() {
-        let detail = upstream_detail(&response.text().await.unwrap_or_default());
+        let body = response.text().await.unwrap_or_default();
+        tracing::warn!(
+            "authentication request to {provider} returned HTTP {}: {}",
+            status.as_u16(),
+            body.chars().take(500).collect::<String>()
+        );
+        let detail = upstream_detail(&body);
         let message = match (provider, status.as_u16()) {
             ("minecraft_profile", 404) => "this account does not have a Minecraft profile".into(),
             ("xsts", 401) => {
@@ -599,10 +605,25 @@ async fn parse_response<T: serde::de::DeserializeOwned>(
 fn upstream_detail(body: &str) -> Option<String> {
     let value: Value = serde_json::from_str(body).ok()?;
     let mut parts = Vec::new();
-    for key in ["Message", "error_description", "error", "message"] {
-        if let Some(text) = value.get(key).and_then(Value::as_str) {
-            parts.push(text.to_owned());
-            break;
+    for key in [
+        "Message",
+        "error_description",
+        "errorMessage",
+        "error",
+        "message",
+    ] {
+        match value.get(key) {
+            Some(Value::String(text)) => {
+                parts.push(text.clone());
+                break;
+            }
+            Some(Value::Object(error)) => {
+                if let Some(text) = error.get("message").and_then(Value::as_str) {
+                    parts.push(text.to_owned());
+                    break;
+                }
+            }
+            _ => {}
         }
     }
     if let Some(code) = value.get("XErr").and_then(Value::as_i64) {
@@ -716,5 +737,9 @@ mod tests {
         );
         assert_eq!(upstream_detail("not json"), None);
         assert_eq!(upstream_detail("{}"), None);
+        assert_eq!(
+            upstream_detail(r#"{"error":"Forbidden","errorMessage":"Blocked"}"#).as_deref(),
+            Some("Blocked")
+        );
     }
 }

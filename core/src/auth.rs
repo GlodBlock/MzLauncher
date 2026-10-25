@@ -178,6 +178,7 @@ impl AuthService {
                         session.snapshot.account_id = Some(account_id);
                     }
                     Err(error) => {
+                        tracing::warn!("microsoft login failed: {error}");
                         session.snapshot.status = if error.is_cancelled() {
                             LoginStatus::Cancelled
                         } else {

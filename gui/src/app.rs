@@ -405,6 +405,12 @@ impl MzApp {
             }
             "account.begin_login" | "account.login_status" => {
                 if let Ok(session) = serde_json::from_value::<LoginSession>(result) {
+                    if session.status == "failed" {
+                        crate::log::write(&format!(
+                            "microsoft login failed: {}",
+                            session.error.as_deref().unwrap_or("unknown error")
+                        ));
+                    }
                     if pending.method == "account.begin_login" {
                         let _ = open::that(&session.authorization_url);
                     }

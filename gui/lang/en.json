@@ -115,7 +115,7 @@
     "accounts.open_browser": "open it here",
     "accounts.cancel_login": "Cancel Sign-in",
     "accounts.login_success": "Signed in successfully.",
-    "accounts.login_failed": "Sign-in did not complete: {status} {error}",
+    "accounts.login_failed_log": "Sign-in did not complete: {status}. Details were written to the log.",
     "accounts.id": "Account ID: {id}",
     "accounts.existing": "Existing Accounts",
     "accounts.empty": "No accounts",

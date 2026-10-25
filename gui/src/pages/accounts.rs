@@ -53,13 +53,7 @@ impl MzApp {
                 status => {
                     ui.colored_label(
                         egui::Color32::from_rgb(200, 60, 60),
-                        self.trf(
-                            "accounts.login_failed",
-                            &[
-                                ("status", status),
-                                ("error", &session.error.unwrap_or_default()),
-                            ],
-                        ),
+                        self.trf("accounts.login_failed_log", &[("status", status)]),
                     );
                 }
             }

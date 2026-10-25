@@ -115,7 +115,7 @@
     "accounts.open_browser": "点击这里",
     "accounts.cancel_login": "取消登录",
     "accounts.login_success": "登录成功。",
-    "accounts.login_failed": "登录未完成：{status} {error}",
+    "accounts.login_failed_log": "登录未完成：{status}，详情已写入日志",
     "accounts.id": "账号 ID：{id}",
     "accounts.existing": "已有账号",
     "accounts.empty": "暂无账号",

@@ -527,6 +527,12 @@ impl AuthService {
             .get()
             .microsoft_client_id
             .filter(|value| !value.trim().is_empty())
+            .or_else(|| {
+                std::env::var("MZLAUNCHER_MICROSOFT_CLIENT_ID")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty())
+            })
+            .or_else(|| option_env!("MZLAUNCHER_DEFAULT_CLIENT_ID").map(str::to_owned))
             .ok_or_else(|| {
                 CoreError::Configuration(
                     "microsoftClientId must be configured before Microsoft login".into(),

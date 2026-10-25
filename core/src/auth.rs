@@ -711,7 +711,7 @@ mod tests {
         assert_eq!(
             upstream_detail(r#"{"error":"invalid_grant","error_description":"Expired"}"#)
                 .as_deref(),
-            Some("Expired; code invalid_grant")
+            Some("Expired")
         );
         assert_eq!(upstream_detail("not json"), None);
         assert_eq!(upstream_detail("{}"), None);

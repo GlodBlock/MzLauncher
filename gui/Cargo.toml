@@ -1,0 +1,15 @@
+[package]
+name = "mzlauncher-gui"
+version = "0.1.0"
+description = "Desktop GUI for MzLauncher"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+eframe = "0.31"
+open = "5.3"
+rfd = "0.15"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.12", features = ["v4"] }

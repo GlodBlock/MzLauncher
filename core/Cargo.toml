@@ -21,7 +21,7 @@ flate2 = "1.0"
 fs2 = "0.4"
 futures-util = "0.3"
 hex = "0.4"
-keyring = "3.6"
+keyring = { version = "3.6", default-features = false, features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-rust"] }
 parking_lot = "0.12"
 percent-encoding = "2.3"
 rand = "0.8"

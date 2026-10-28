@@ -1039,6 +1039,32 @@ mod tests {
         server.await.unwrap();
     }
 
+    #[tokio::test]
+    async fn reads_credentials_immediately_after_saving_an_account() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = AppPaths::new(temp.path().join("data"));
+        paths.initialize().unwrap();
+        let config = Arc::new(ConfigManager::load(paths.clone()).unwrap());
+        let store = Arc::new(Store::open(&paths).unwrap());
+        let service = AuthService::new(config, store, paths).unwrap();
+        let profile = MinecraftProfile {
+            id: "profile".into(),
+            name: "Player".into(),
+            skins: Vec::new(),
+        };
+        let tokens = TokenSet {
+            microsoft_access_token: "microsoft-access-token".into(),
+            refresh_token: Some("refresh-token".into()),
+            minecraft_access_token: "minecraft-access-token".into(),
+            microsoft_expires_at: Utc::now() + chrono::Duration::hours(1),
+            minecraft_expires_at: Utc::now() + chrono::Duration::hours(1),
+        };
+        let id = service.save_authenticated_account(profile, tokens).unwrap();
+        let result = service.access_token(id).await;
+        service.logout(id).unwrap();
+        assert_eq!(result.unwrap(), "minecraft-access-token");
+    }
+
     #[test]
     fn pkce_values_are_url_safe() {
         let verifier = random_url_safe(48);

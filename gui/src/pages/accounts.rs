@@ -89,7 +89,8 @@ impl MzApp {
                                             .add(account_action_button(
                                                 ui,
                                                 "refresh",
-                                                include_bytes!("../../assets/refresh.png"),
+                                                include_bytes!("../../assets/refresh-light.png"),
+                                                include_bytes!("../../assets/refresh-dark.png"),
                                             ))
                                             .on_hover_text(self.tr("accounts.refresh_credentials"))
                                             .clicked()
@@ -107,7 +108,12 @@ impl MzApp {
                                                 account_action_button(
                                                     ui,
                                                     "set-default",
-                                                    include_bytes!("../../assets/set-default.png"),
+                                                    include_bytes!(
+                                                        "../../assets/set-default-light.png"
+                                                    ),
+                                                    include_bytes!(
+                                                        "../../assets/set-default-dark.png"
+                                                    ),
                                                 ),
                                             )
                                             .on_hover_text(self.tr("accounts.set_default"))
@@ -124,7 +130,8 @@ impl MzApp {
                                             .add(account_action_button(
                                                 ui,
                                                 "logout",
-                                                include_bytes!("../../assets/logout.png"),
+                                                include_bytes!("../../assets/logout-light.png"),
+                                                include_bytes!("../../assets/logout-dark.png"),
                                             ))
                                             .on_hover_text(self.tr("accounts.logout"))
                                             .clicked()
@@ -203,11 +210,15 @@ impl MzApp {
 fn account_action_button(
     ui: &egui::Ui,
     name: &str,
-    png: &'static [u8],
+    light_png: &'static [u8],
+    dark_png: &'static [u8],
 ) -> egui::ImageButton<'static> {
-    let image = egui::Image::from_bytes(format!("bytes://account-{name}.png"), png)
-        .fit_to_exact_size(egui::vec2(18.0, 18.0))
-        .texture_options(egui::TextureOptions::NEAREST)
-        .tint(ui.visuals().text_color());
+    let (theme, png) = if ui.visuals().dark_mode {
+        ("dark", dark_png)
+    } else {
+        ("light", light_png)
+    };
+    let image = egui::Image::from_bytes(format!("bytes://account-{name}-{theme}.png"), png)
+        .fit_to_exact_size(egui::vec2(18.0, 18.0));
     egui::ImageButton::new(image)
 }

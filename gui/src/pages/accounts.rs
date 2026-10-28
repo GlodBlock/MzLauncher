@@ -45,38 +45,39 @@ impl MzApp {
                     crate::card_frame(ui).show(ui, |ui| {
                         ui.set_min_width(300.0);
                         ui.set_max_width(300.0);
-                        ui.set_min_height(260.0);
-                        ui.horizontal(|ui| {
+                        ui.set_min_height(340.0);
+                        ui.vertical_centered(|ui| {
                             show_character(
                                 ui,
                                 egui::vec2(112.0, 190.0),
                                 &skin,
                                 ui.ctx().input(|input| input.time),
                             );
-                            ui.vertical(|ui| {
-                                ui.strong(egui::RichText::new(&account.name).size(17.0));
-                                ui.label(self.tr(account_kind_key(&account.kind)));
-                                ui.label(self.tr(if account.verified {
-                                    "accounts.verified"
-                                } else {
-                                    "accounts.unverified"
-                                }));
-                                if default_id.as_deref() == Some(account.id.as_str()) {
-                                    ui.colored_label(
-                                        egui::Color32::from_rgb(59, 130, 246),
-                                        self.tr("accounts.default"),
-                                    );
-                                }
-                                if loading {
-                                    ui.small(self.tr("accounts.skin_loading"));
-                                }
-                                if self.skins.is_failed(&account.id)
-                                    && ui.button(self.tr("accounts.retry_skin")).clicked()
-                                {
-                                    self.skins.retry(&account.id);
-                                    self.request_missing_skins();
-                                }
-                                ui.add_space(6.0);
+                            ui.add_space(8.0);
+                            ui.strong(egui::RichText::new(&account.name).size(17.0));
+                            ui.label(self.tr(account_kind_key(&account.kind)));
+                            ui.label(self.tr(if account.verified {
+                                "accounts.verified"
+                            } else {
+                                "accounts.unverified"
+                            }));
+                            if default_id.as_deref() == Some(account.id.as_str()) {
+                                ui.colored_label(
+                                    egui::Color32::from_rgb(59, 130, 246),
+                                    self.tr("accounts.default"),
+                                );
+                            }
+                            if loading {
+                                ui.small(self.tr("accounts.skin_loading"));
+                            }
+                            if self.skins.is_failed(&account.id)
+                                && ui.button(self.tr("accounts.retry_skin")).clicked()
+                            {
+                                self.skins.retry(&account.id);
+                                self.request_missing_skins();
+                            }
+                            ui.add_space(10.0);
+                            ui.horizontal(|ui| {
                                 if ui.button(self.tr("accounts.refresh_credentials")).clicked() {
                                     self.skins.invalidate(&account.id);
                                     self.call(

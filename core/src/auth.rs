@@ -464,7 +464,7 @@ impl AuthService {
             .clone()
             .ok_or(CoreError::Unauthorized)?;
         let config = self.config.get();
-        let microsoft = self
+        let mut microsoft = self
             .microsoft_token(
                 &config.endpoints.microsoft_authority,
                 &[
@@ -475,6 +475,7 @@ impl AuthService {
                 ],
             )
             .await?;
+        preserve_refresh_token(&mut microsoft, refresh_token);
         let (_, refreshed) = self
             .authenticate_minecraft(microsoft, &config.endpoints)
             .await?;
@@ -530,10 +531,7 @@ impl AuthService {
             }
         }
 
-        validate_skin_url(
-            Url::parse(url)
-                .map_err(|_| CoreError::Unsupported("Minecraft skin URL is invalid".into()))?,
-        )?;
+        let url = validated_skin_url(url)?;
         let mut response = self
             .client
             .get(url)
@@ -685,6 +683,12 @@ fn validate_debug_name(name: &str) -> CoreResult<()> {
     Ok(())
 }
 
+fn preserve_refresh_token(response: &mut TokenResponse, previous: String) {
+    if response.refresh_token.is_none() {
+        response.refresh_token = Some(previous);
+    }
+}
+
 const MAX_SKIN_BYTES: u64 = 1024 * 1024;
 
 fn profile_skin(profile: &MinecraftProfile) -> (Option<String>, Option<String>) {
@@ -697,6 +701,21 @@ fn profile_skin(profile: &MinecraftProfile) -> (Option<String>, Option<String>) 
         Some(_) => return (None, None),
     };
     (Some(skin.url.clone()), Some(model.into()))
+}
+
+fn validated_skin_url(value: &str) -> CoreResult<Url> {
+    let mut url = Url::parse(value)
+        .map_err(|_| CoreError::Unsupported("Minecraft skin URL is invalid".into()))?;
+    if url.scheme() == "http"
+        && url
+            .host_str()
+            .is_some_and(|host| host.eq_ignore_ascii_case("textures.minecraft.net"))
+    {
+        url.set_scheme("https")
+            .map_err(|_| CoreError::Unsupported("Minecraft skin URL is invalid".into()))?;
+    }
+    validate_skin_url(url.clone())?;
+    Ok(url)
 }
 
 fn validate_skin_url(url: Url) -> CoreResult<()> {
@@ -896,6 +915,45 @@ mod tests {
         let without_skins: MinecraftProfile =
             serde_json::from_value(json!({"id": "profile", "name": "Player"})).unwrap();
         assert_eq!(profile_skin(&without_skins), (None, None));
+    }
+
+    #[test]
+    fn upgrades_only_official_minecraft_http_skin_urls() {
+        let official = validated_skin_url("http://textures.minecraft.net/texture/example").unwrap();
+        assert_eq!(
+            official.as_str(),
+            "https://textures.minecraft.net/texture/example"
+        );
+        assert!(validated_skin_url("http://example.com/skin.png").is_err());
+        assert!(validated_skin_url("http://textures.minecraft.net.evil.example/skin.png").is_err());
+        let loopback = validated_skin_url("http://127.0.0.1/skin.png").unwrap();
+        assert_eq!(loopback.scheme(), "http");
+    }
+
+    #[test]
+    fn preserves_the_previous_refresh_token_when_rotation_is_omitted() {
+        let mut response: TokenResponse = serde_json::from_value(json!({
+            "access_token": "new-access-token",
+            "expires_in": 3600
+        }))
+        .unwrap();
+        preserve_refresh_token(&mut response, "previous-refresh-token".into());
+        assert_eq!(
+            response.refresh_token.as_deref(),
+            Some("previous-refresh-token")
+        );
+
+        let mut rotated: TokenResponse = serde_json::from_value(json!({
+            "access_token": "new-access-token",
+            "refresh_token": "rotated-refresh-token",
+            "expires_in": 3600
+        }))
+        .unwrap();
+        preserve_refresh_token(&mut rotated, "previous-refresh-token".into());
+        assert_eq!(
+            rotated.refresh_token.as_deref(),
+            Some("rotated-refresh-token")
+        );
     }
 
     #[test]

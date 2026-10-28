@@ -635,23 +635,21 @@ impl eframe::App for MzApp {
                         self.trf("status.active_jobs", &[("count", &active.to_string())])
                     ));
                 }
-                ui.add_space(if ctx.screen_rect().height() >= 700.0 {
-                    120.0
-                } else {
-                    40.0
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                    ui.add_space(12.0);
+                    let label = egui::RichText::new(format!("{title}\n{subtitle}")).size(13.0);
+                    if ui
+                        .add_sized(
+                            [ui.available_width(), 58.0],
+                            egui::Button::new(label).frame(true),
+                        )
+                        .clicked()
+                    {
+                        self.page = Page::Accounts;
+                    }
+                    ui.add_space(8.0);
+                    ui.add(egui::Label::new(egui::RichText::new(status).size(10.0)).truncate());
                 });
-                ui.add(egui::Label::new(egui::RichText::new(status).size(10.0)).truncate());
-                ui.add_space(8.0);
-                let label = egui::RichText::new(format!("{title}\n{subtitle}")).size(13.0);
-                if ui
-                    .add_sized(
-                        [ui.available_width(), 58.0],
-                        egui::Button::new(label).frame(true),
-                    )
-                    .clicked()
-                {
-                    self.page = Page::Accounts;
-                }
             });
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(fatal) = self.fatal.clone() {

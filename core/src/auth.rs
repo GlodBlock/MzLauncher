@@ -1052,17 +1052,18 @@ mod tests {
             name: "Player".into(),
             skins: Vec::new(),
         };
+        let minecraft_access_token = "minecraft-access-token".repeat(128);
         let tokens = TokenSet {
-            microsoft_access_token: "microsoft-access-token".into(),
-            refresh_token: Some("refresh-token".into()),
-            minecraft_access_token: "minecraft-access-token".into(),
+            microsoft_access_token: "microsoft-access-token".repeat(128),
+            refresh_token: Some("refresh-token".repeat(128)),
+            minecraft_access_token: minecraft_access_token.clone(),
             microsoft_expires_at: Utc::now() + chrono::Duration::hours(1),
             minecraft_expires_at: Utc::now() + chrono::Duration::hours(1),
         };
         let id = service.save_authenticated_account(profile, tokens).unwrap();
         let result = service.access_token(id).await;
         service.logout(id).unwrap();
-        assert_eq!(result.unwrap(), "minecraft-access-token");
+        assert_eq!(result.unwrap(), minecraft_access_token);
     }
 
     #[test]

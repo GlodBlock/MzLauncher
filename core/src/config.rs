@@ -17,6 +17,8 @@ pub struct AppConfig {
     pub download: DownloadConfig,
     pub endpoints: EndpointConfig,
     #[serde(default)]
+    pub launch: LaunchConfig,
+    #[serde(default)]
     pub runtime_dir: Option<PathBuf>,
     pub microsoft_client_id: Option<String>,
     pub default_account_id: Option<Uuid>,
@@ -28,9 +30,30 @@ impl Default for AppConfig {
             version: DATA_VERSION,
             download: DownloadConfig::default(),
             endpoints: EndpointConfig::default(),
+            launch: LaunchConfig::default(),
             runtime_dir: None,
             microsoft_client_id: std::env::var("MZLAUNCHER_MICROSOFT_CLIENT_ID").ok(),
             default_account_id: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchConfig {
+    pub java_path: Option<PathBuf>,
+    pub min_memory_mb: u32,
+    pub max_memory_mb: u32,
+    pub jvm_args: Vec<String>,
+}
+
+impl Default for LaunchConfig {
+    fn default() -> Self {
+        Self {
+            java_path: None,
+            min_memory_mb: 512,
+            max_memory_mb: 4096,
+            jvm_args: Vec::new(),
         }
     }
 }
@@ -169,6 +192,35 @@ impl AppConfig {
                 ));
             }
         }
+        if self
+            .launch
+            .java_path
+            .as_ref()
+            .is_some_and(|path| !path.is_absolute())
+        {
+            return Err(CoreError::InvalidInput(
+                "Java path must be an absolute path".into(),
+            ));
+        }
+        if !(256..=65_536).contains(&self.launch.min_memory_mb)
+            || !(256..=65_536).contains(&self.launch.max_memory_mb)
+            || self.launch.min_memory_mb > self.launch.max_memory_mb
+        {
+            return Err(CoreError::InvalidInput(
+                "memory must be between 256 and 65536 MiB, and minimum cannot exceed maximum"
+                    .into(),
+            ));
+        }
+        if self
+            .launch
+            .jvm_args
+            .iter()
+            .any(|argument| argument.is_empty() || argument.contains('\0'))
+        {
+            return Err(CoreError::InvalidInput(
+                "Java arguments must be non-empty and contain no null characters".into(),
+            ));
+        }
         if !(1..=32).contains(&self.download.max_concurrent) {
             return Err(CoreError::InvalidInput(
                 "download concurrency must be between 1 and 32".into(),
@@ -226,6 +278,34 @@ impl AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn launch_defaults_are_compatible_and_camel_case() {
+        let config = AppConfig::default();
+        assert!(config.launch.java_path.is_none());
+        assert_eq!(config.launch.min_memory_mb, 512);
+        assert_eq!(config.launch.max_memory_mb, 4096);
+        assert!(config.launch.jvm_args.is_empty());
+        let value = serde_json::to_value(&config).unwrap();
+        assert_eq!(value["launch"]["minMemoryMb"], 512);
+        assert!(value["launch"]["min_memory_mb"].is_null());
+        let mut legacy = value;
+        legacy.as_object_mut().unwrap().remove("launch");
+        assert!(serde_json::from_value::<AppConfig>(legacy).is_ok());
+    }
+
+    #[test]
+    fn validates_launch_settings() {
+        let mut config = AppConfig::default();
+        config.launch.java_path = Some(PathBuf::from("java"));
+        assert!(config.validate().is_err());
+        config.launch.java_path = None;
+        config.launch.max_memory_mb = 65_537;
+        assert!(config.validate().is_err());
+        config.launch.max_memory_mb = 4096;
+        config.launch.jvm_args = vec!["bad\0argument".into()];
+        assert!(config.validate().is_err());
+    }
 
     #[test]
     fn rejects_proxy_credentials() {

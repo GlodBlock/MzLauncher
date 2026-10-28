@@ -49,7 +49,7 @@ fn analyzes_modrinth_pack_and_rejects_unsafe_paths() {
     client.call(
         "hello",
         "system.handshake",
-        json!({"clientVersion": "test", "minProtocol": 1, "maxProtocol": 1}),
+        json!({"clientVersion": "test", "minProtocol": 2, "maxProtocol": 2}),
     );
     let analysis = client.call("analyze", "modpack.analyze", json!({"path": valid}));
     assert!(analysis["error"].is_null(), "analysis failed: {analysis}");

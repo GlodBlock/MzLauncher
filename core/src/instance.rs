@@ -6,7 +6,7 @@ use parking_lot::RwLock;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::config::EndpointConfig;
+use crate::config::{ConfigManager, EndpointConfig};
 use crate::download::Downloader;
 use crate::error::{CoreError, CoreResult};
 use crate::java::JavaManager;
@@ -21,6 +21,7 @@ use crate::version::VersionService;
 pub struct InstanceService {
     paths: AppPaths,
     store: Arc<Store>,
+    config: Arc<ConfigManager>,
     versions: VersionService,
     java: JavaManager,
     loaders: LoaderService,
@@ -33,6 +34,7 @@ impl InstanceService {
         downloader: Downloader,
         endpoints: EndpointConfig,
         runtime_root: Arc<RwLock<PathBuf>>,
+        config: Arc<ConfigManager>,
     ) -> Self {
         let versions = VersionService::new(paths.clone(), downloader.clone(), endpoints.clone());
         let java = JavaManager::new(downloader.clone(), endpoints.clone(), runtime_root);
@@ -40,6 +42,7 @@ impl InstanceService {
         Self {
             paths,
             store,
+            config,
             versions,
             java,
             loaders,
@@ -65,6 +68,17 @@ impl InstanceService {
                 "a loader version is required for modded instances".into(),
             ));
         }
+        let defaults = self.config.get().launch;
+        let java_path = params.java_path.or_else(|| {
+            defaults
+                .java_path
+                .map(|path| path.to_string_lossy().into_owned())
+        });
+        let min_memory_mb = params.min_memory_mb.unwrap_or(defaults.min_memory_mb);
+        let max_memory_mb = params.max_memory_mb.unwrap_or(defaults.max_memory_mb);
+        let jvm_args = params.jvm_args.unwrap_or(defaults.jvm_args);
+        validate_memory(min_memory_mb, max_memory_mb)?;
+        validate_arguments(&jvm_args)?;
         let now = Utc::now();
         let instance = Instance {
             id: Uuid::new_v4(),
@@ -74,15 +88,16 @@ impl InstanceService {
             loader: params.loader,
             loader_version: params.loader_version,
             install_status: InstallStatus::NotInstalled,
-            java_path: params.java_path,
-            min_memory_mb: params.min_memory_mb,
-            max_memory_mb: params.max_memory_mb,
-            jvm_args: params.jvm_args,
+            java_path,
+            min_memory_mb,
+            max_memory_mb,
+            jvm_args,
             game_args: params.game_args,
             account_id: params.account_id,
             created_at: now,
             updated_at: now,
             last_launched_at: None,
+            total_play_time_ms: 0,
         };
         let root = self.paths.instance(instance.id);
         for directory in [
@@ -144,6 +159,7 @@ impl InstanceService {
             current.install_status
         };
         instance.last_launched_at = current.last_launched_at;
+        instance.total_play_time_ms = current.total_play_time_ms;
         instance.updated_at = Utc::now();
         self.store.save_instance(&instance)?;
         Ok(instance)
@@ -158,6 +174,7 @@ impl InstanceService {
         copied.created_at = Utc::now();
         copied.updated_at = copied.created_at;
         copied.last_launched_at = None;
+        copied.total_play_time_ms = 0;
         let source_path = self.paths.instance(id);
         let temporary = self.paths.instances.join(format!(".copy-{}", copied.id));
         let destination = self.paths.instance(copied.id);
@@ -266,8 +283,6 @@ fn validate_instance_params(params: &CreateInstanceParams) -> CoreResult<()> {
     {
         return Err(CoreError::InvalidInput("invalid game version".into()));
     }
-    validate_memory(params.min_memory_mb, params.max_memory_mb)?;
-    validate_arguments(&params.jvm_args)?;
     validate_arguments(&params.game_args)
 }
 
@@ -337,10 +352,11 @@ mod tests {
     use super::*;
     use crate::config::DownloadConfig;
 
-    fn service() -> (tempfile::TempDir, InstanceService) {
+    fn service() -> (tempfile::TempDir, InstanceService, Arc<ConfigManager>) {
         let temp = tempfile::tempdir().unwrap();
         let paths = AppPaths::new(temp.path().join("data"));
         paths.initialize().unwrap();
+        let config = Arc::new(ConfigManager::load(paths.clone()).unwrap());
         let store = Arc::new(Store::open(&paths).unwrap());
         let downloader = Downloader::new(DownloadConfig::default()).unwrap();
         let runtime_root = Arc::new(RwLock::new(paths.runtimes.clone()));
@@ -350,13 +366,14 @@ mod tests {
             downloader,
             EndpointConfig::default(),
             runtime_root,
+            config.clone(),
         );
-        (temp, service)
+        (temp, service, config)
     }
 
     #[test]
     fn creates_isolated_instance_directories() {
-        let (_temp, service) = service();
+        let (_temp, service, _config) = service();
         let first = service.create(params("first")).unwrap();
         let second = service.create(params("second")).unwrap();
         assert_ne!(first.id, second.id);
@@ -365,11 +382,45 @@ mod tests {
     }
 
     #[test]
+    fn resolves_missing_launch_settings_from_global_config() {
+        let (temp, service, config) = service();
+        let mut settings = config.get();
+        let java = temp.path().join("java.exe");
+        settings.launch.java_path = Some(java.clone());
+        settings.launch.min_memory_mb = 1024;
+        settings.launch.max_memory_mb = 2048;
+        settings.launch.jvm_args = vec!["-Dexample=true".into()];
+        config.replace(settings).unwrap();
+
+        let instance = service.create(params("defaults")).unwrap();
+        assert_eq!(
+            instance.java_path,
+            Some(java.to_string_lossy().into_owned())
+        );
+        assert_eq!(instance.min_memory_mb, 1024);
+        assert_eq!(instance.max_memory_mb, 2048);
+        assert_eq!(instance.jvm_args, vec!["-Dexample=true"]);
+    }
+
+    #[tokio::test]
+    async fn update_preserves_play_time_and_copy_resets_it() {
+        let (_temp, service, _config) = service();
+        let mut instance = service.create(params("source")).unwrap();
+        instance.total_play_time_ms = 1234;
+        service.store.save_instance(&instance).unwrap();
+        instance.total_play_time_ms = 9999;
+        let updated = service.update_settings(instance).unwrap();
+        assert_eq!(updated.total_play_time_ms, 1234);
+        let copied = service.copy(updated.id, "copy".into()).await.unwrap();
+        assert_eq!(copied.total_play_time_ms, 0);
+    }
+
+    #[test]
     fn rejects_invalid_memory_and_arguments() {
-        let (_temp, service) = service();
+        let (_temp, service, _config) = service();
         let mut params = params("invalid");
-        params.min_memory_mb = 8192;
-        params.max_memory_mb = 1024;
+        params.min_memory_mb = Some(8192);
+        params.max_memory_mb = Some(1024);
         assert!(service.create(params).is_err());
     }
 
@@ -381,9 +432,9 @@ mod tests {
             loader: LoaderKind::Vanilla,
             loader_version: None,
             java_path: None,
-            min_memory_mb: 512,
-            max_memory_mb: 4096,
-            jvm_args: vec![],
+            min_memory_mb: None,
+            max_memory_mb: None,
+            jvm_args: None,
             game_args: vec![],
             account_id: None,
         }

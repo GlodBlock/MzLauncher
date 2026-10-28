@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine;
 use chrono::{DateTime, Utc};
 use rand::RngCore;
@@ -21,6 +21,7 @@ use crate::config::ConfigManager;
 use crate::credentials::CredentialStore;
 use crate::error::{CoreError, CoreResult};
 use crate::model::{Account, AccountKind};
+use crate::paths::{atomic_write, AppPaths};
 use crate::store::Store;
 
 #[derive(Debug, Clone, Serialize)]
@@ -94,19 +95,36 @@ struct MinecraftTokenResponse {
 struct MinecraftProfile {
     id: String,
     name: String,
+    #[serde(default)]
+    skins: Vec<MinecraftSkin>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MinecraftSkin {
+    state: String,
+    url: String,
+    variant: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkinSnapshot {
+    pub png_base64: String,
+    pub model: String,
 }
 
 #[derive(Clone)]
 pub struct AuthService {
     config: Arc<ConfigManager>,
     store: Arc<Store>,
+    paths: AppPaths,
     credentials: CredentialStore,
     client: reqwest::Client,
     sessions: Arc<Mutex<HashMap<Uuid, LoginState>>>,
 }
 
 impl AuthService {
-    pub fn new(config: Arc<ConfigManager>, store: Arc<Store>) -> CoreResult<Self> {
+    pub fn new(config: Arc<ConfigManager>, store: Arc<Store>, paths: AppPaths) -> CoreResult<Self> {
         let current = config.get();
         let mut builder = reqwest::Client::builder()
             .user_agent(format!("MzLauncher-Core/{}", crate::CORE_VERSION))
@@ -120,6 +138,7 @@ impl AuthService {
         Ok(Self {
             config,
             store,
+            paths,
             credentials: CredentialStore::new(),
             client: builder
                 .build()
@@ -382,6 +401,7 @@ impl AuthService {
         profile: MinecraftProfile,
         tokens: TokenSet,
     ) -> CoreResult<Uuid> {
+        let (skin_url, skin_model) = profile_skin(&profile);
         if let Some(existing) = self.store.accounts()?.into_iter().find(|account| {
             account.profile_id == profile.id && account.kind == AccountKind::Microsoft
         }) {
@@ -392,9 +412,15 @@ impl AuthService {
             self.credentials.store_json(&key, &tokens)?;
             let mut account = existing;
             account.name = profile.name;
+            let skin_changed = account.skin_url != skin_url || account.skin_model != skin_model;
+            account.skin_url = skin_url;
+            account.skin_model = skin_model;
             account.verified = true;
             account.last_validated_at = Some(Utc::now());
             self.store.save_account(&account)?;
+            if skin_changed {
+                self.invalidate_skin_cache(account.id);
+            }
             return Ok(account.id);
         }
         let id = Uuid::new_v4();
@@ -406,6 +432,8 @@ impl AuthService {
             name: profile.name,
             kind: AccountKind::Microsoft,
             verified: true,
+            skin_url,
+            skin_model,
             credential_key: Some(credential_key),
             last_validated_at: Some(Utc::now()),
         };
@@ -455,16 +483,103 @@ impl AuthService {
     }
 
     pub async fn refresh(&self, id: Uuid) -> CoreResult<Account> {
-        let account = self.store.account(id)?;
+        let mut account = self.store.account(id)?;
         if account.kind == AccountKind::Debug {
             return Ok(account);
         }
-        self.access_token(id).await?;
-        let mut account = account;
+        let access_token = self.access_token(id).await?;
+        let profile: MinecraftProfile = parse_response(
+            self.client
+                .get(&self.config.get().endpoints.minecraft_profile)
+                .bearer_auth(access_token)
+                .send()
+                .await
+                .map_err(auth_network_error)?,
+            "minecraft_profile",
+        )
+        .await?;
+        let (skin_url, skin_model) = profile_skin(&profile);
+        account.name = profile.name;
+        account.skin_url = skin_url;
+        account.skin_model = skin_model;
         account.verified = true;
         account.last_validated_at = Some(Utc::now());
         self.store.save_account(&account)?;
+        self.invalidate_skin_cache(id);
         Ok(account)
+    }
+
+    pub async fn skin(&self, id: Uuid) -> CoreResult<SkinSnapshot> {
+        let account = self.store.account(id)?;
+        let url = account
+            .skin_url
+            .as_deref()
+            .ok_or_else(|| CoreError::NotFound("Minecraft skin".into()))?;
+        let model = account
+            .skin_model
+            .clone()
+            .unwrap_or_else(|| "classic".into());
+        let cache = self.paths.cache.join("skins").join(format!("{id}.png"));
+        if cache.is_file() {
+            let cached = tokio::fs::read(&cache).await?;
+            if validate_skin_png(&cached).is_ok() {
+                return Ok(SkinSnapshot {
+                    png_base64: STANDARD.encode(cached),
+                    model,
+                });
+            }
+        }
+
+        validate_skin_url(
+            Url::parse(url)
+                .map_err(|_| CoreError::Unsupported("Minecraft skin URL is invalid".into()))?,
+        )?;
+        let mut response = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(auth_network_error)?;
+        validate_skin_url(response.url().clone())?;
+        if !response.status().is_success() {
+            return Err(CoreError::Upstream {
+                provider: "minecraft_skin".into(),
+                status: response.status().as_u16(),
+                message: "could not download Minecraft skin".into(),
+            });
+        }
+        if response
+            .content_length()
+            .is_some_and(|size| size > MAX_SKIN_BYTES)
+        {
+            return Err(CoreError::Unsupported(
+                "Minecraft skin PNG exceeds the 1 MiB limit".into(),
+            ));
+        }
+        let mut png = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(auth_network_error)? {
+            if png.len() + chunk.len() > MAX_SKIN_BYTES as usize {
+                return Err(CoreError::Unsupported(
+                    "Minecraft skin PNG exceeds the 1 MiB limit".into(),
+                ));
+            }
+            png.extend_from_slice(&chunk);
+        }
+        validate_skin_png(&png)?;
+        atomic_write(&cache, &png)?;
+        Ok(SkinSnapshot {
+            png_base64: STANDARD.encode(png),
+            model,
+        })
+    }
+
+    fn invalidate_skin_cache(&self, id: Uuid) {
+        let cache = self.paths.cache.join("skins").join(format!("{id}.png"));
+        if let Err(error) = std::fs::remove_file(cache) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!(%id, %error, "could not invalidate Minecraft skin cache");
+            }
+        }
     }
 
     pub fn select(&self, id: Uuid) -> CoreResult<Account> {
@@ -507,6 +622,8 @@ impl AuthService {
             name,
             kind: AccountKind::Debug,
             verified: false,
+            skin_url: None,
+            skin_model: None,
             credential_key: None,
             last_validated_at: None,
         }
@@ -563,6 +680,58 @@ fn validate_debug_name(name: &str) -> CoreResult<()> {
     {
         return Err(CoreError::InvalidInput(
             "debug profile name must contain 1 to 16 ASCII letters, digits, or underscores".into(),
+        ));
+    }
+    Ok(())
+}
+
+const MAX_SKIN_BYTES: u64 = 1024 * 1024;
+
+fn profile_skin(profile: &MinecraftProfile) -> (Option<String>, Option<String>) {
+    let Some(skin) = profile.skins.iter().find(|skin| skin.state == "ACTIVE") else {
+        return (None, None);
+    };
+    let model = match skin.variant.as_deref() {
+        None | Some("CLASSIC") => "classic",
+        Some("SLIM") => "slim",
+        Some(_) => return (None, None),
+    };
+    (Some(skin.url.clone()), Some(model.into()))
+}
+
+fn validate_skin_url(url: Url) -> CoreResult<()> {
+    let loopback = match url.host() {
+        Some(url::Host::Domain(host)) => host.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(address)) => address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => address.is_loopback(),
+        None => false,
+    };
+    if (url.scheme() != "https" && !(url.scheme() == "http" && loopback))
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err(CoreError::Unsupported(
+            "Minecraft skin URL must use HTTPS (except loopback HTTP)".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_skin_png(png: &[u8]) -> CoreResult<()> {
+    if png.len() < 24
+        || png[..8] != [137, 80, 78, 71, 13, 10, 26, 10]
+        || png[8..12] != [0, 0, 0, 13]
+        || &png[12..16] != b"IHDR"
+    {
+        return Err(CoreError::Unsupported(
+            "Minecraft skin is not a valid PNG".into(),
+        ));
+    }
+    let width = u32::from_be_bytes(png[16..20].try_into().unwrap());
+    let height = u32::from_be_bytes(png[20..24].try_into().unwrap());
+    if (width, height) != (64, 32) && (width, height) != (64, 64) {
+        return Err(CoreError::Unsupported(
+            "Minecraft skin PNG must be 64x32 or 64x64".into(),
         ));
     }
     Ok(())
@@ -709,6 +878,108 @@ pub fn account_as_json(account: &Account) -> CoreResult<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_the_active_minecraft_skin() {
+        let profile: MinecraftProfile = serde_json::from_value(json!({
+            "id": "profile",
+            "name": "Player",
+            "skins": [
+                {"state": "INACTIVE", "url": "https://example.com/old.png", "variant": "CLASSIC"},
+                {"state": "ACTIVE", "url": "https://example.com/current.png", "variant": "SLIM"}
+            ]
+        }))
+        .unwrap();
+        let (url, model) = profile_skin(&profile);
+        assert_eq!(url.as_deref(), Some("https://example.com/current.png"));
+        assert_eq!(model.as_deref(), Some("slim"));
+        let without_skins: MinecraftProfile =
+            serde_json::from_value(json!({"id": "profile", "name": "Player"})).unwrap();
+        assert_eq!(profile_skin(&without_skins), (None, None));
+    }
+
+    #[test]
+    fn validates_skin_png_signature_and_dimensions() {
+        let mut png = vec![0_u8; 24];
+        png[..8].copy_from_slice(&[137, 80, 78, 71, 13, 10, 26, 10]);
+        png[8..12].copy_from_slice(&13_u32.to_be_bytes());
+        png[12..16].copy_from_slice(b"IHDR");
+        png[16..20].copy_from_slice(&64_u32.to_be_bytes());
+        png[20..24].copy_from_slice(&64_u32.to_be_bytes());
+        assert!(validate_skin_png(&png).is_ok());
+        png[20..24].copy_from_slice(&32_u32.to_be_bytes());
+        assert!(validate_skin_png(&png).is_ok());
+        png[20..24].copy_from_slice(&128_u32.to_be_bytes());
+        assert!(validate_skin_png(&png).is_err());
+        png[20..24].copy_from_slice(&64_u32.to_be_bytes());
+        png[0] = 0;
+        assert!(validate_skin_png(&png).is_err());
+    }
+
+    #[tokio::test]
+    async fn downloads_and_caches_skin_snapshots() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = AppPaths::new(temp.path().join("data"));
+        paths.initialize().unwrap();
+        let config = Arc::new(ConfigManager::load(paths.clone()).unwrap());
+        let store = Arc::new(Store::open(&paths).unwrap());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let id = Uuid::new_v4();
+        store
+            .save_account(&Account {
+                id,
+                profile_id: "profile".into(),
+                name: "Player".into(),
+                kind: AccountKind::Microsoft,
+                verified: true,
+                skin_url: Some(format!("http://{address}/skin.png")),
+                skin_model: Some("slim".into()),
+                credential_key: None,
+                last_validated_at: None,
+            })
+            .unwrap();
+        let service = AuthService::new(config, store, paths.clone()).unwrap();
+        let mut png = vec![0_u8; 24];
+        png[..8].copy_from_slice(&[137, 80, 78, 71, 13, 10, 26, 10]);
+        png[8..12].copy_from_slice(&13_u32.to_be_bytes());
+        png[12..16].copy_from_slice(b"IHDR");
+        png[16..20].copy_from_slice(&64_u32.to_be_bytes());
+        png[20..24].copy_from_slice(&64_u32.to_be_bytes());
+        let response_png = png.clone();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 1024];
+            let _ = socket.read(&mut request).await.unwrap();
+            socket
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        response_png.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            socket.write_all(&response_png).await.unwrap();
+        });
+
+        let snapshot = service.skin(id).await.unwrap();
+        assert_eq!(snapshot.model, "slim");
+        assert_eq!(STANDARD.decode(&snapshot.png_base64).unwrap(), png);
+        assert_eq!(
+            serde_json::to_value(&snapshot).unwrap()["pngBase64"],
+            snapshot.png_base64
+        );
+        let cached = service.skin(id).await.unwrap();
+        assert_eq!(cached.png_base64, snapshot.png_base64);
+        assert!(paths
+            .cache
+            .join("skins")
+            .join(format!("{id}.png"))
+            .is_file());
+        server.await.unwrap();
+    }
 
     #[test]
     fn pkce_values_are_url_safe() {

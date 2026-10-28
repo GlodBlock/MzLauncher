@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use mzlauncher_core::config::{DownloadConfig, EndpointConfig};
+use mzlauncher_core::config::{ConfigManager, DownloadConfig, EndpointConfig};
 use mzlauncher_core::download::Downloader;
 use mzlauncher_core::instance::InstanceService;
 use mzlauncher_core::job::JobManager;
@@ -15,6 +15,7 @@ async fn fabric_profile_can_be_read_and_merged_for_an_instance() {
     let temp = tempfile::tempdir().unwrap();
     let paths = AppPaths::new(temp.path().join("data"));
     paths.initialize().unwrap();
+    let config = Arc::new(ConfigManager::load(paths.clone()).unwrap());
     let store = Arc::new(Store::open(&paths).unwrap());
     let downloader = Downloader::new(DownloadConfig::default()).unwrap();
     let runtime_root = Arc::new(parking_lot::RwLock::new(paths.runtimes.clone()));
@@ -24,6 +25,7 @@ async fn fabric_profile_can_be_read_and_merged_for_an_instance() {
         downloader,
         EndpointConfig::default(),
         runtime_root,
+        config,
     );
     let instance = instances
         .create(CreateInstanceParams {
@@ -33,9 +35,9 @@ async fn fabric_profile_can_be_read_and_merged_for_an_instance() {
             loader: LoaderKind::Fabric,
             loader_version: Some("0.16.10".into()),
             java_path: None,
-            min_memory_mb: 512,
-            max_memory_mb: 4096,
-            jvm_args: vec![],
+            min_memory_mb: Some(512),
+            max_memory_mb: Some(4096),
+            jvm_args: Some(vec![]),
             game_args: vec![],
             account_id: None,
         })

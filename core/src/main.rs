@@ -7,6 +7,7 @@ use mzlauncher_core::{paths::AppPaths, server::Server, CORE_VERSION};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let mut data_dir = None;
+    let mut log_dir = None;
     let mut args = std::env::args_os().skip(1);
     while let Some(arg) = args.next() {
         if arg == "--data-dir" {
@@ -14,6 +15,11 @@ async fn main() -> anyhow::Result<()> {
                 usage();
             };
             data_dir = Some(PathBuf::from(path));
+        } else if arg == "--log-dir" {
+            let Some(path) = args.next() else {
+                usage();
+            };
+            log_dir = Some(PathBuf::from(path));
         } else if arg == "--silent" {
             hide_console();
         } else if arg == "--version" {
@@ -24,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    let paths = AppPaths::discover(data_dir.clone())?;
+    let paths = AppPaths::discover(data_dir.clone(), log_dir.clone())?;
     std::fs::create_dir_all(&paths.logs)?;
     let file = std::fs::OpenOptions::new()
         .create(true)
@@ -39,7 +45,7 @@ async fn main() -> anyhow::Result<()> {
         .with_writer(move || LogWriter(writer.clone()))
         .init();
 
-    Server::new(data_dir)?.run().await?;
+    Server::new(data_dir, log_dir)?.run().await?;
     Ok(())
 }
 
@@ -63,7 +69,9 @@ impl Write for LogWriter {
 }
 
 fn usage() -> ! {
-    eprintln!("usage: mzlauncher-core [--data-dir <path>] [--silent] | [--version]");
+    eprintln!(
+        "usage: mzlauncher-core [--data-dir <path>] [--log-dir <path>] [--silent] | [--version]"
+    );
     std::process::exit(2);
 }
 

@@ -189,6 +189,8 @@ pub struct Instance {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub last_launched_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub total_play_time_ms: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -206,6 +208,8 @@ pub struct Account {
     pub name: String,
     pub kind: AccountKind,
     pub verified: bool,
+    pub skin_url: Option<String>,
+    pub skin_model: Option<String>,
     pub credential_key: Option<String>,
     pub last_validated_at: Option<DateTime<Utc>>,
 }
@@ -326,21 +330,10 @@ pub struct CreateInstanceParams {
     pub loader: LoaderKind,
     pub loader_version: Option<String>,
     pub java_path: Option<String>,
-    #[serde(default = "default_min_memory")]
-    pub min_memory_mb: u32,
-    #[serde(default = "default_max_memory")]
-    pub max_memory_mb: u32,
-    #[serde(default)]
-    pub jvm_args: Vec<String>,
+    pub min_memory_mb: Option<u32>,
+    pub max_memory_mb: Option<u32>,
+    pub jvm_args: Option<Vec<String>>,
     #[serde(default)]
     pub game_args: Vec<String>,
     pub account_id: Option<Uuid>,
-}
-
-fn default_min_memory() -> u32 {
-    512
-}
-
-fn default_max_memory() -> u32 {
-    4096
 }

@@ -82,6 +82,9 @@ impl Store {
                 COMMIT;",
             )?;
         }
+        if version < DATA_VERSION {
+            connection.execute_batch(&format!("PRAGMA user_version = {DATA_VERSION}"))?;
+        }
         Ok(())
     }
 
@@ -326,9 +329,16 @@ mod tests {
                     created_at: now,
                     updated_at: now,
                     last_launched_at: None,
+                    total_play_time_ms: 0,
                 })
                 .unwrap();
         }
         assert_eq!(store.instances().unwrap().len(), 2);
+        let version: u32 = store
+            .connection
+            .lock()
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, DATA_VERSION);
     }
 }

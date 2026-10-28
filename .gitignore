@@ -9,7 +9,11 @@
 
 # 文档与模型提示词
 doc/
+AGENTS.md
 
 # 本地凭证（不提交）
 /secret
 reference/
+
+# Aseprite 工程文件（不提交）
+*.aseprite

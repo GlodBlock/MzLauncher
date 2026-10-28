@@ -171,9 +171,9 @@ impl ModpackService {
             loader: analysis.loader,
             loader_version: analysis.loader_version.clone(),
             java_path: None,
-            min_memory_mb: 512,
-            max_memory_mb: 4096,
-            jvm_args: Vec::new(),
+            min_memory_mb: Some(512),
+            max_memory_mb: Some(4096),
+            jvm_args: Some(Vec::new()),
             game_args: Vec::new(),
             account_id: None,
         })?;

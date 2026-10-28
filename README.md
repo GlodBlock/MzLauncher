@@ -28,7 +28,7 @@ The binaries are at `target/release/mzlauncher-gui` and `target/release/mzlaunch
 
 Start `mzlauncher-gui`. It launches the core process automatically, finding it next to the gui executable, on `PATH`, or at the path in the `MZLAUNCHER_CORE_PATH` environment variable.
 
-In the gui you can then log in with a Microsoft account, create an instance or import a modpack, wait for installation to finish in the job center, and launch the game.
+In the gui you can log in with a Microsoft account, create an instance, wait for installation to finish, and launch the game. The main navigation contains Instances, Accounts, and Settings; instance details include mod management, logs, and launch overrides.
 
 core communicates with gui over stdin/stdout and is not used as a command line tool directly. Any program that can read and write stdio can also drive core through the protocol.
 

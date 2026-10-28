@@ -22,12 +22,19 @@ pub struct AppPaths {
 }
 
 impl AppPaths {
-    pub fn discover(override_root: Option<PathBuf>) -> CoreResult<Self> {
+    pub fn discover(
+        override_root: Option<PathBuf>,
+        override_logs: Option<PathBuf>,
+    ) -> CoreResult<Self> {
         let root = match override_root {
             Some(path) => path,
             None => default_root()?,
         };
-        Ok(Self::new(root))
+        let mut paths = Self::new(root);
+        if let Some(logs) = override_logs {
+            paths.logs = logs;
+        }
+        Ok(paths)
     }
 
     pub fn new(root: PathBuf) -> Self {

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="background" x1="32" y1="20" x2="224" y2="236" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1E3A8A"/>
+      <stop offset="1" stop-color="#0F172A"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="139" y1="73" x2="205" y2="183" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7DD3FC"/>
+      <stop offset="1" stop-color="#3B82F6"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#background)"/>
+  <rect x="9" y="9" width="238" height="238" rx="51" fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="2"/>
+  <path fill="#F8FAFC" d="M40 73h22v11H40zM84 73h22v11H84zM40 84h33v11H40zM84 84h22v11H84zM40 95h22v11H40zM62 95h22v11H62zM95 95h11v11H95zM40 106h22v11H40zM73 106h11v11H73zM95 106h11v11H95zM40 117h22v11H40zM84 117h22v11H84zM40 128h22v11H40zM84 128h22v11H84zM40 139h22v11H40zM84 139h22v11H84zM40 150h22v11H40zM84 150h22v11H84zM40 161h22v22H40zM84 161h22v22H84z"/>
+  <path fill="url(#accent)" d="M139 73h77v22h-77zM194 95h22v11h-22zM183 106h22v11h-22zM172 117h22v11h-22zM161 128h22v11h-22zM150 139h22v11h-22zM139 150h22v11h-22zM139 161h77v22h-77z"/>
+</svg>

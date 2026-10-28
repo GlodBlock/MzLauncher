@@ -26,10 +26,16 @@ pub struct CoreConnection {
 }
 
 impl CoreConnection {
-    pub fn spawn() -> Result<Self, (String, String)> {
+    pub fn spawn(data_dir: Option<&str>, log_dir: Option<&str>) -> Result<Self, (String, String)> {
         let core_path =
             find_core().ok_or_else(|| ("error.core_not_found".to_owned(), String::new()))?;
         let mut command = Command::new(&core_path);
+        if let Some(path) = data_dir.filter(|path| !path.trim().is_empty()) {
+            command.arg("--data-dir").arg(path);
+        }
+        if let Some(path) = log_dir.filter(|path| !path.trim().is_empty()) {
+            command.arg("--log-dir").arg(path);
+        }
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

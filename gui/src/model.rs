@@ -30,6 +30,7 @@ pub struct Instance {
     pub created_at: String,
     pub updated_at: String,
     pub last_launched_at: Option<String>,
+    pub total_play_time_ms: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -39,6 +40,8 @@ pub struct Account {
     pub name: String,
     pub kind: String,
     pub verified: bool,
+    pub skin_url: Option<String>,
+    pub skin_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -119,6 +122,16 @@ pub struct AppSettings {
     pub runtime_dir: Option<String>,
     pub microsoft_client_id: Option<String>,
     pub default_account_id: Option<String>,
+    pub launch: LaunchSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchSettings {
+    pub java_path: Option<String>,
+    pub min_memory_mb: u32,
+    pub max_memory_mb: u32,
+    pub jvm_args: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

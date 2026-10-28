@@ -21,7 +21,7 @@ pub struct I18n {
 }
 
 impl I18n {
-    pub fn load() -> Self {
+    pub fn load(preferred_language: &str) -> Self {
         let mut locales = Vec::new();
         let english: LanguageFile = serde_json::from_str(include_str!("../lang/en.json"))
             .expect("embedded English language file must be valid");
@@ -58,9 +58,11 @@ impl I18n {
                 });
             }
         }
-        let current = load_language_preference()
-            .filter(|preferred| locales.iter().any(|locale| locale.id == *preferred))
-            .unwrap_or_else(|| "en".into());
+        let current = if locales.iter().any(|locale| locale.id == preferred_language) {
+            preferred_language.to_owned()
+        } else {
+            "en".into()
+        };
         Self { locales, current }
     }
 
@@ -78,7 +80,6 @@ impl I18n {
     pub fn set_current(&mut self, id: &str) {
         if self.locales.iter().any(|locale| locale.id == id) {
             self.current = id.to_owned();
-            save_language_preference(id);
         }
     }
 
@@ -115,30 +116,4 @@ fn lang_dirs() -> Vec<PathBuf> {
     dirs.push(PathBuf::from("lang"));
     dirs.push(PathBuf::from("gui/lang"));
     dirs
-}
-
-fn preferences_file() -> Option<PathBuf> {
-    let dirs = directories::ProjectDirs::from("com", "MzLauncher", "MzLauncher")?;
-    Some(dirs.config_dir().join("gui").join("preferences.json"))
-}
-
-fn load_language_preference() -> Option<String> {
-    let bytes = std::fs::read(preferences_file()?).ok()?;
-    serde_json::from_slice::<HashMap<String, String>>(&bytes)
-        .ok()?
-        .get("language")
-        .cloned()
-}
-
-fn save_language_preference(language: &str) {
-    let Some(file) = preferences_file() else {
-        return;
-    };
-    if let Some(parent) = file.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let preferences = HashMap::from([("language", language)]);
-    if let Ok(json) = serde_json::to_vec_pretty(&preferences) {
-        let _ = std::fs::write(file, json);
-    }
 }

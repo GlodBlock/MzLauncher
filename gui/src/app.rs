@@ -6,9 +6,12 @@ use serde_json::{json, Value};
 use crate::client::{CoreConnection, CoreMessage};
 use crate::i18n::I18n;
 use crate::model::*;
+use crate::preferences::GuiPreferences;
+use crate::skin::SkinCache;
 
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Page {
     Home,
@@ -61,6 +64,10 @@ pub struct Pending {
 
 pub struct MzApp {
     pub i18n: I18n,
+    pub preferences: GuiPreferences,
+    pub system_dark: bool,
+    pub applied_theme: Option<(crate::preferences::ThemePreference, bool)>,
+    pub skins: SkinCache,
     pub conn: Option<CoreConnection>,
     pub fatal: Option<String>,
     pub notice: Option<String>,
@@ -77,7 +84,6 @@ pub struct MzApp {
     pub curseforge_key_input: String,
     pub pending: HashMap<String, Pending>,
     pub instance_search: String,
-    pub grid_selected: Option<String>,
     pub selected_instance: Option<String>,
     pub create: Option<CreateDialog>,
     pub versions: Vec<VersionSummary>,
@@ -88,6 +94,8 @@ pub struct MzApp {
     pub java_candidates: Vec<JavaInfo>,
     pub preflight: HashMap<String, Value>,
     pub core_data_dir: Option<String>,
+    pub core_instance_dir: Option<String>,
+    pub core_log_dir: Option<String>,
     pub confirm_delete: Option<String>,
     pub browser: ModBrowser,
     pub modpack: ModpackWizard,
@@ -95,16 +103,22 @@ pub struct MzApp {
 }
 
 impl MzApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         crate::log::init();
         crate::log::write("gui starting");
+        let preferences = GuiPreferences::load();
+        let system_dark = cc.egui_ctx.style().visuals.dark_mode;
         let mut app = Self {
-            i18n: I18n::load(),
+            i18n: I18n::load(&preferences.language),
+            preferences,
+            system_dark,
+            applied_theme: None,
+            skins: SkinCache::default(),
             conn: None,
             fatal: None,
             notice: None,
             handshake: None,
-            page: Page::Home,
+            page: Page::Instances,
             detail_tab: DetailTab::Overview,
             accounts: Vec::new(),
             instances: Vec::new(),
@@ -116,7 +130,6 @@ impl MzApp {
             curseforge_key_input: String::new(),
             pending: HashMap::new(),
             instance_search: String::new(),
-            grid_selected: None,
             selected_instance: None,
             create: None,
             versions: Vec::new(),
@@ -127,6 +140,8 @@ impl MzApp {
             java_candidates: Vec::new(),
             preflight: HashMap::new(),
             core_data_dir: None,
+            core_instance_dir: None,
+            core_log_dir: None,
             confirm_delete: None,
             browser: ModBrowser {
                 provider: "modrinth".into(),
@@ -160,7 +175,13 @@ impl MzApp {
     pub fn connect(&mut self) {
         self.fatal = None;
         self.handshake = None;
-        match CoreConnection::spawn() {
+        self.pending.clear();
+        self.skins.reset_pending();
+        self.conn = None;
+        match CoreConnection::spawn(
+            self.preferences.storage_dir.as_deref(),
+            self.preferences.log_dir.as_deref(),
+        ) {
             Ok(conn) => {
                 self.conn = Some(conn);
                 self.call(
@@ -210,6 +231,23 @@ impl MzApp {
 
     pub fn refresh_instances(&mut self) {
         self.call("instance.list", Value::Null, Value::Null);
+    }
+
+    pub(crate) fn request_missing_skins(&mut self) {
+        let requests: Vec<(String, String)> = self
+            .accounts
+            .iter()
+            .filter_map(|account| {
+                let url = account.skin_url.as_deref()?;
+                self.skins
+                    .needs_request(&account.id, url)
+                    .then(|| (account.id.clone(), url.to_owned()))
+            })
+            .collect();
+        for (id, url) in requests {
+            self.skins.begin_request(&id, &url);
+            self.call("account.skin", json!({"id": id}), json!({"id": id}));
+        }
     }
 
     pub fn refresh_mods(&mut self, instance_id: &str) {
@@ -275,10 +313,18 @@ impl MzApp {
             }
             "mod.search" => self.browser.searching = false,
             "modpack.analyze" => self.modpack.analyzing = false,
+            "account.skin" => {
+                if let Some(id) = pending.context.get("id").and_then(Value::as_str) {
+                    self.skins.fail(id);
+                }
+            }
             _ => {}
         }
         crate::log::write(&format!("{} failed: {message} ({code})", pending.method));
-        self.notice = Some(self.trf("notice.request_failed_log", &[("method", &pending.method)]));
+        if pending.method != "account.skin" {
+            self.notice =
+                Some(self.trf("notice.request_failed_log", &[("method", &pending.method)]));
+        }
     }
 
     fn handle_event(&mut self, event: Value) {
@@ -334,13 +380,46 @@ impl MzApp {
                 self.call("system.diagnostics", Value::Null, Value::Null);
             }
             "system.diagnostics" => {
-                self.core_data_dir = result
-                    .get("extra")
-                    .and_then(|extra| extra.get("dataDirectory"))
+                let extra = result.get("extra").cloned().unwrap_or(Value::Null);
+                self.core_data_dir = extra
+                    .get("dataDirectory")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                self.core_instance_dir = extra
+                    .get("instanceDirectory")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                self.core_log_dir = extra
+                    .get("logDirectory")
                     .and_then(Value::as_str)
                     .map(str::to_owned);
             }
-            "account.list" => self.accounts = parse_list(result),
+            "account.list" => {
+                self.accounts = parse_list(result);
+                let ids: Vec<String> = self
+                    .accounts
+                    .iter()
+                    .map(|account| account.id.clone())
+                    .collect();
+                self.skins.retain_accounts(&ids);
+                self.request_missing_skins();
+            }
+            "account.skin" => {
+                if let Some(id) = pending.context.get("id").and_then(Value::as_str) {
+                    let png = result
+                        .get("pngBase64")
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    let model = result
+                        .get("model")
+                        .and_then(Value::as_str)
+                        .unwrap_or("classic");
+                    if let Err(error) = self.skins.complete(id, png, model) {
+                        crate::log::write(&format!("skin decode failed for {id}: {error}"));
+                        self.skins.fail(id);
+                    }
+                }
+            }
             "instance.list" => {
                 self.instances = parse_list(result);
                 if self.browser.target.is_none() {
@@ -469,6 +548,11 @@ fn parse_list<T: serde::de::DeserializeOwned>(value: Value) -> Vec<T> {
 
 impl eframe::App for MzApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let theme = (self.preferences.theme, self.system_dark);
+        if self.applied_theme != Some(theme) {
+            crate::apply_theme(ctx, self.preferences.theme, self.system_dark);
+            self.applied_theme = Some(theme);
+        }
         self.poll();
         if self
             .login
@@ -495,18 +579,14 @@ impl eframe::App for MzApp {
                 });
                 ui.add_space(16.0);
                 for (page, key) in [
-                    (Page::Home, "nav.home"),
                     (Page::Instances, "nav.instances"),
-                    (Page::Mods, "nav.mods"),
-                    (Page::Modpack, "nav.modpack"),
-                    (Page::Jobs, "nav.jobs"),
                     (Page::Accounts, "nav.accounts"),
                     (Page::Settings, "nav.settings"),
                 ] {
                     let selected = self.page == page;
                     if ui
                         .add_sized(
-                            [ui.available_width(), 34.0],
+                            [ui.available_width(), 38.0],
                             egui::SelectableLabel::new(
                                 selected,
                                 egui::RichText::new(self.tr(key)).size(15.0),
@@ -518,38 +598,61 @@ impl eframe::App for MzApp {
                     }
                     ui.add_space(2.0);
                 }
-            });
-        egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                if let Some(handshake) = &self.handshake {
-                    ui.label(self.trf(
-                        "status.core_protocol",
-                        &[
-                            ("version", &handshake.core_version),
-                            ("protocol", &handshake.protocol_version.to_string()),
-                        ],
-                    ));
-                } else {
-                    ui.label(self.tr("status.core_offline"));
-                }
-                if let Some(conn) = &self.conn {
-                    ui.separator();
-                    ui.small(self.trf(
-                        "status.core_path",
-                        &[("path", &conn.core_path.display().to_string())],
-                    ));
-                }
+                let account = self
+                    .settings
+                    .as_ref()
+                    .and_then(|settings| settings.default_account_id.as_deref())
+                    .and_then(|id| self.accounts.iter().find(|account| account.id == id));
+                let (title, subtitle) = match account {
+                    Some(account) => (
+                        account.name.clone(),
+                        self.tr(crate::pages::home::account_kind_key(&account.kind)),
+                    ),
+                    None => (
+                        self.tr("home.no_account"),
+                        self.tr("accounts.add_account_short"),
+                    ),
+                };
                 let active = self
                     .jobs
                     .iter()
                     .filter(|job| matches!(job.status.as_str(), "queued" | "running"))
                     .count();
+                let mut status = if let Some(handshake) = &self.handshake {
+                    self.trf(
+                        "status.core_protocol",
+                        &[
+                            ("version", &handshake.core_version),
+                            ("protocol", &handshake.protocol_version.to_string()),
+                        ],
+                    )
+                } else {
+                    self.tr("status.core_offline")
+                };
                 if active > 0 {
-                    ui.separator();
-                    ui.label(self.trf("status.active_jobs", &[("count", &active.to_string())]));
+                    status.push_str(&format!(
+                        " · {}",
+                        self.trf("status.active_jobs", &[("count", &active.to_string())])
+                    ));
+                }
+                ui.add_space(if ctx.screen_rect().height() >= 700.0 {
+                    120.0
+                } else {
+                    40.0
+                });
+                ui.add(egui::Label::new(egui::RichText::new(status).size(10.0)).truncate());
+                ui.add_space(8.0);
+                let label = egui::RichText::new(format!("{title}\n{subtitle}")).size(13.0);
+                if ui
+                    .add_sized(
+                        [ui.available_width(), 58.0],
+                        egui::Button::new(label).frame(true),
+                    )
+                    .clicked()
+                {
+                    self.page = Page::Accounts;
                 }
             });
-        });
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(fatal) = self.fatal.clone() {
                 ui.colored_label(egui::Color32::from_rgb(200, 60, 60), fatal);

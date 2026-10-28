@@ -21,7 +21,7 @@ fn debug_account_is_controlled_by_the_compile_time_feature() {
     let handshake = client.call(
         "hello",
         "system.handshake",
-        json!({"clientVersion": "test", "minProtocol": 1, "maxProtocol": 1}),
+        json!({"clientVersion": "test", "minProtocol": 2, "maxProtocol": 2}),
     );
     assert_eq!(handshake["result"]["debugAuth"], cfg!(feature = "debug"));
     let microsoft = client.call("microsoft", "account.begin_login", Value::Null);
@@ -44,7 +44,11 @@ fn debug_account_is_controlled_by_the_compile_time_feature() {
         assert!(debug["error"].is_null(), "debug login failed: {debug}");
         assert_eq!(debug["result"]["kind"], "debug");
         assert_eq!(debug["result"]["verified"], false);
+        assert!(debug["result"]["skinUrl"].is_null());
+        assert!(debug["result"]["skinModel"].is_null());
         let id = debug["result"]["id"].as_str().unwrap();
+        let skin = client.call("skin", "account.skin", json!({"id": id}));
+        assert_eq!(skin["error"]["code"], "not_found");
         let selected = client.call("select", "account.select", json!({"id": id}));
         assert_eq!(selected["result"]["id"], id);
         let current = client.call("current", "account.current", Value::Null);

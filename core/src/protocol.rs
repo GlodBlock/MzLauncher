@@ -101,8 +101,8 @@ mod tests {
     fn rejects_incompatible_protocol() {
         let error = handshake(HandshakeParams {
             client_version: "1.0.0".into(),
-            min_protocol: 2,
-            max_protocol: 3,
+            min_protocol: 3,
+            max_protocol: 4,
         })
         .unwrap_err();
         assert_eq!(error.code(), "protocol_incompatible");

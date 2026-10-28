@@ -93,17 +93,16 @@ impl MzApp {
             if ui.button(self.tr("action.stop")).clicked() {
                 self.call("game.stop", json!({"id": id}), json!({"instanceId": id}));
             }
-        } else {
-            if install_status == "installed" && ui.button(self.tr("action.launch")).clicked() {
+        } else if install_status == "installed" {
+            if ui.button(self.tr("action.launch")).clicked() {
                 self.call("game.launch", json!({"id": id}), json!({"instanceId": id}));
             }
-            if ui.button(self.tr("action.install_repair")).clicked() {
-                self.call(
-                    "instance.install",
-                    json!({"id": id}),
-                    json!({"instanceId": id}),
-                );
-            }
+        } else if ui.button(self.tr("action.install")).clicked() {
+            self.call(
+                "instance.install",
+                json!({"id": id}),
+                json!({"instanceId": id}),
+            );
         }
     }
 }

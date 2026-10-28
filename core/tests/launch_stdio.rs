@@ -101,7 +101,7 @@ fn launches_a_real_java_process_through_protocol() {
     client.call(
         "hello",
         "system.handshake",
-        json!({"clientVersion": "test", "minProtocol": 1, "maxProtocol": 1}),
+        json!({"clientVersion": "test", "minProtocol": 2, "maxProtocol": 2}),
     );
     let account = client.call(
         "debug",
@@ -147,6 +147,21 @@ fn launches_a_real_java_process_through_protocol() {
             break;
         }
         assert!(Instant::now() < deadline, "game did not stop: {status}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    loop {
+        let current = client.call(
+            "instance-after-exit",
+            "instance.get",
+            json!({"id": instance["id"]}),
+        );
+        if current["result"]["totalPlayTimeMs"].as_u64().unwrap_or(0) > 0 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "play time was not saved: {current}"
+        );
         std::thread::sleep(Duration::from_millis(50));
     }
     let logs = client.call(

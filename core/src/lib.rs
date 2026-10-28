@@ -19,6 +19,6 @@ pub mod store;
 pub mod version;
 
 pub const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const PROTOCOL_VERSION: u32 = 1;
-pub const DATA_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
+pub const DATA_VERSION: u32 = 2;
 pub const DEBUG_AUTH: bool = cfg!(feature = "debug");

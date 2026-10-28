@@ -21,7 +21,7 @@ fn instance_crud_works_through_the_real_protocol() {
     client.call(
         "hello",
         "system.handshake",
-        json!({"clientVersion": "test", "minProtocol": 1, "maxProtocol": 1}),
+        json!({"clientVersion": "test", "minProtocol": 2, "maxProtocol": 2}),
     );
     let created = client.call(
         "create",
@@ -34,9 +34,11 @@ fn instance_crud_works_through_the_real_protocol() {
             "maxMemoryMb": 4096
         }),
     );
+    assert_eq!(created["result"]["totalPlayTimeMs"], 0);
     let id = created["result"]["id"].as_str().unwrap().to_owned();
     let copied = client.call("copy", "instance.copy", json!({"id": id, "name": "copy"}));
     assert_ne!(copied["result"]["id"], id);
+    assert_eq!(copied["result"]["totalPlayTimeMs"], 0);
     let listed = client.call("list", "instance.list", Value::Null);
     assert_eq!(listed["result"].as_array().unwrap().len(), 2);
     let validated = client.call("validate", "instance.validate", json!({"id": id}));

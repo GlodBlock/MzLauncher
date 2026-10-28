@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -34,6 +34,7 @@ pub struct GameSnapshot {
 struct GameEntry {
     snapshot: GameSnapshot,
     child: Arc<Mutex<Child>>,
+    started_at: Instant,
 }
 
 struct LaunchPlan {
@@ -348,6 +349,7 @@ impl LaunchService {
             GameEntry {
                 snapshot: snapshot.clone(),
                 child: child.clone(),
+                started_at: Instant::now(),
             },
         );
         self.jobs.emit_game(id, GameStatus::Running);
@@ -394,9 +396,18 @@ impl LaunchService {
                     } else {
                         GameStatus::Failed
                     };
-                    if let Some(entry) = self.processes.lock().await.get_mut(&id) {
-                        entry.snapshot.status = game_status;
-                        entry.snapshot.exit_code = status.code();
+                    let started_at = {
+                        let mut processes = self.processes.lock().await;
+                        processes.get_mut(&id).map(|entry| {
+                            entry.snapshot.status = game_status;
+                            entry.snapshot.exit_code = status.code();
+                            entry.started_at
+                        })
+                    };
+                    if let Some(started_at) = started_at {
+                        if let Err(error) = self.record_play_time(id, started_at.elapsed()) {
+                            tracing::warn!(%id, %error, "could not save instance play time");
+                        }
                     }
                     self.jobs.emit_game(id, game_status);
                     break;
@@ -409,6 +420,13 @@ impl LaunchService {
                 }
             }
         }
+    }
+
+    fn record_play_time(&self, id: Uuid, elapsed: Duration) -> CoreResult<()> {
+        let mut instance = self.store.instance(id)?;
+        add_play_time(&mut instance, elapsed);
+        instance.updated_at = Utc::now();
+        self.store.save_instance(&instance)
     }
 
     pub async fn status(&self, id: Uuid) -> CoreResult<Option<GameSnapshot>> {
@@ -566,6 +584,11 @@ async fn write_log_line(
     Ok(())
 }
 
+fn add_play_time(instance: &mut Instance, elapsed: Duration) {
+    let milliseconds = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX);
+    instance.total_play_time_ms = instance.total_play_time_ms.saturating_add(milliseconds);
+}
+
 pub fn is_game_directory(path: &Path) -> bool {
     path.is_dir()
 }
@@ -573,6 +596,37 @@ pub fn is_game_directory(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accumulates_play_time_without_overflow() {
+        let now = Utc::now();
+        let mut instance: Instance = serde_json::from_value(json!({
+            "id": Uuid::new_v4(),
+            "name": "test",
+            "description": null,
+            "gameVersion": "1.21.1",
+            "loader": "vanilla",
+            "loaderVersion": null,
+            "installStatus": "installed",
+            "javaPath": null,
+            "minMemoryMb": 512,
+            "maxMemoryMb": 4096,
+            "jvmArgs": [],
+            "gameArgs": [],
+            "accountId": null,
+            "createdAt": now,
+            "updatedAt": now,
+            "lastLaunchedAt": null
+        }))
+        .unwrap();
+        assert_eq!(instance.total_play_time_ms, 0);
+        add_play_time(&mut instance, Duration::from_millis(1500));
+        add_play_time(&mut instance, Duration::from_millis(250));
+        assert_eq!(instance.total_play_time_ms, 1750);
+        instance.total_play_time_ms = u64::MAX;
+        add_play_time(&mut instance, Duration::from_millis(1));
+        assert_eq!(instance.total_play_time_ms, u64::MAX);
+    }
 
     #[test]
     fn replaces_only_known_placeholders() {

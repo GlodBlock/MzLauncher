@@ -31,24 +31,17 @@ impl MzApp {
         }
         ui.horizontal(|ui| {
             ui.heading(self.tr("instances.title"));
-            if ui.button(self.tr("action.new_instance")).clicked() {
-                self.open_create_dialog();
-            }
-            if ui.button(self.tr("action.import_modpack")).clicked() {
-                self.page = Page::Modpack;
-            }
-            ui.separator();
             let search_hint = self.tr("instances.search_hint");
             ui.add(
                 egui::TextEdit::singleline(&mut self.instance_search)
-                    .desired_width(200.0)
+                    .desired_width(260.0)
                     .hint_text(search_hint),
             );
+            if ui.button(self.tr("action.new_instance")).clicked() {
+                self.open_create_dialog();
+            }
         });
-        ui.separator();
-        if self.instances.is_empty() {
-            ui.label(self.tr("instances.empty"));
-        }
+        ui.add_space(8.0);
         let search = self.instance_search.to_lowercase();
         let instances: Vec<Instance> = self
             .instances
@@ -56,133 +49,134 @@ impl MzApp {
             .filter(|instance| instance.name.to_lowercase().contains(&search))
             .cloned()
             .collect();
-        if let Some(selected) = self.grid_selected.clone() {
-            self.instance_action_panel(ui.ctx(), &selected);
+        if instances.is_empty() {
+            ui.label(self.tr("instances.empty"));
         }
-        let mut clicked = None;
         egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for instance in instances {
-                    let selected = self.grid_selected.as_deref() == Some(instance.id.as_str());
-                    if instance_tile(ui, self, &instance, selected).clicked() {
-                        clicked = Some(instance.id.clone());
-                    }
-                }
-            });
+            for instance in instances {
+                self.instance_row(ui, &instance);
+                ui.add_space(8.0);
+            }
         });
-        if clicked.is_some() {
-            self.grid_selected = clicked;
-        }
         self.create_dialog(ui.ctx());
         self.delete_dialog(ui.ctx());
     }
 
-    fn instance_action_panel(&mut self, ctx: &egui::Context, id: &str) {
-        let Some(instance) = self.instance(id).cloned() else {
-            self.grid_selected = None;
-            return;
-        };
-        egui::SidePanel::right("instance_actions")
-            .resizable(false)
-            .exact_width(240.0)
-            .show(ctx, |ui| {
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    ui.heading(&instance.name);
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button("×").clicked() {
-                            self.grid_selected = None;
-                        }
-                    });
-                });
-                ui.label(format!(
-                    "{} · {}{}",
-                    instance.game_version,
-                    self.tr(loader_key(&instance.loader)),
-                    instance
-                        .loader_version
-                        .as_deref()
-                        .map(|version| format!(" {version}"))
-                        .unwrap_or_default()
-                ));
-                ui.label(self.tr(status_key(
-                    &instance.install_status,
-                    self.games.get(&instance.id).map(String::as_str),
-                )));
-                ui.add_space(12.0);
-                let width = ui.available_width();
+    fn instance_row(&mut self, ui: &mut egui::Ui, instance: &Instance) {
+        crate::card_frame(ui).show(ui, |ui| {
+            let width = ui.available_width();
+            ui.set_min_width(width);
+            ui.horizontal(|ui| {
+                instance_icon(ui, &instance.name);
+                let action_width = 190.0;
+                let info_width = (width - 48.0 - action_width - 24.0).max(120.0);
+                ui.allocate_ui_with_layout(
+                    egui::vec2(info_width, 64.0),
+                    egui::Layout::top_down(egui::Align::LEFT),
+                    |ui| {
+                        let name = character_ellipsis(&instance.name, 28);
+                        ui.add(egui::Label::new(egui::RichText::new(name).size(17.0).strong()));
+                        let version = format!(
+                            "{} · {}{}",
+                            instance.game_version,
+                            self.tr(loader_key(&instance.loader)),
+                            instance
+                                .loader_version
+                                .as_deref()
+                                .map(|version| format!(" {version}"))
+                                .unwrap_or_default()
+                        );
+                        ui.add(egui::Label::new(version));
+                        let status = self.tr(status_key(
+                            &instance.install_status,
+                            self.games.get(&instance.id).map(String::as_str),
+                        ));
+                        let last = self.trf(
+                            "instances.last_launch",
+                            &[("time", &format_last_launch(instance.last_launched_at.as_deref()))],
+                        );
+                        let played = self.trf(
+                            "instances.play_time",
+                            &[("time", &format_play_time(instance.total_play_time_ms))],
+                        );
+                        let details = character_ellipsis(&format!("{status} · {last} · {played}"), 54);
+                        ui.small(details);
+                    },
+                );
                 let running = matches!(
-                    self.games.get(id).map(String::as_str),
+                    self.games.get(&instance.id).map(String::as_str),
                     Some("running" | "starting")
                 );
                 if running {
                     if ui
-                        .add_sized([width, 32.0], egui::Button::new(self.tr("action.stop_game")))
+                        .button("■")
+                        .on_hover_text(self.tr("action.stop_game"))
                         .clicked()
                     {
-                        self.call("game.stop", json!({"id": id}), json!({"instanceId": id}));
+                        self.call(
+                            "game.stop",
+                            json!({"id": instance.id}),
+                            json!({"instanceId": instance.id}),
+                        );
                     }
                 } else {
-                    let label = if instance.install_status == "installed" {
-                        "action.launch_game"
+                    let installed = instance.install_status == "installed";
+                    let (symbol, tooltip) = if installed {
+                        ("▶", "action.launch_game")
                     } else {
-                        "action.prepare_install"
+                        ("⇩", "action.prepare_install")
                     };
-                    if ui
-                        .add_sized([width, 32.0], egui::Button::new(self.tr(label)))
-                        .clicked()
-                    {
-                        if instance.install_status == "installed" {
-                            self.call("game.launch", json!({"id": id}), json!({"instanceId": id}));
-                        } else {
-                            self.call(
-                                "instance.install",
-                                json!({"id": id}),
-                                json!({"instanceId": id}),
-                            );
-                        }
+                    if ui.button(symbol).on_hover_text(self.tr(tooltip)).clicked() {
+                        let method = if installed { "game.launch" } else { "instance.install" };
+                        self.call(
+                            method,
+                            json!({"id": instance.id}),
+                            json!({"instanceId": instance.id}),
+                        );
                     }
                 }
                 if ui
-                    .add_sized(
-                        [width, 30.0],
-                        egui::Button::new(self.tr("action.install_repair")),
-                    )
+                    .button("⚙")
+                    .on_hover_text(self.tr("action.details"))
                     .clicked()
                 {
-                    self.call("instance.install", json!({"id": id}), json!({"instanceId": id}));
-                }
-                if ui
-                    .add_sized([width, 30.0], egui::Button::new(self.tr("action.open_detail")))
-                    .clicked()
-                {
-                    self.selected_instance = Some(id.to_owned());
+                    self.selected_instance = Some(instance.id.clone());
                     self.detail_tab = DetailTab::Overview;
                 }
+                let can_open = self.core_instance_dir.is_some();
                 if ui
-                    .add_sized([width, 30.0], egui::Button::new(self.tr("action.copy")))
+                    .add_enabled(can_open, egui::Button::new("↗"))
+                    .on_hover_text(self.tr("action.open_directory"))
                     .clicked()
                 {
-                    self.call(
-                        "instance.copy",
-                        json!({"id": id, "name": self.trf("instances.copy_name", &[("name", &instance.name)])}),
-                        Value::Null,
-                    );
+                    if let Some(directory) = &self.core_instance_dir {
+                        let _ = open::that(std::path::PathBuf::from(directory).join(&instance.id));
+                    }
                 }
-                ui.add_space(8.0);
-                if ui
-                    .add_sized(
-                        [width, 30.0],
-                        egui::Button::new(
-                            egui::RichText::new(self.tr("action.delete_instance"))
-                                .color(egui::Color32::from_rgb(190, 50, 50)),
-                        ),
-                    )
-                    .clicked()
-                {
-                    self.confirm_delete = Some(id.to_owned());
-                }
+                ui.menu_button("⋯", |ui| {
+                    if ui.button(self.tr("action.repair")).clicked() {
+                        self.call(
+                            "instance.install",
+                            json!({"id": instance.id}),
+                            json!({"instanceId": instance.id}),
+                        );
+                        ui.close_menu();
+                    }
+                    if ui.button(self.tr("action.copy")).clicked() {
+                        self.call(
+                            "instance.copy",
+                            json!({"id": instance.id, "name": self.trf("instances.copy_name", &[("name", &instance.name)])}),
+                            Value::Null,
+                        );
+                        ui.close_menu();
+                    }
+                    if ui.button(self.tr("action.delete_instance")).clicked() {
+                        self.confirm_delete = Some(instance.id.clone());
+                        ui.close_menu();
+                    }
+                });
             });
+        });
     }
 
     fn delete_dialog(&mut self, ctx: &egui::Context) {
@@ -349,9 +343,9 @@ impl MzApp {
                     "loader": dialog.loader,
                     "loaderVersion": if dialog.loader == "vanilla" { Value::Null } else { json!(dialog.loader_version) },
                     "javaPath": Value::Null,
-                    "minMemoryMb": 512,
-                    "maxMemoryMb": 4096,
-                    "jvmArgs": [],
+                    "minMemoryMb": Value::Null,
+                    "maxMemoryMb": Value::Null,
+                    "jvmArgs": Value::Null,
                     "gameArgs": [],
                     "accountId": Value::Null,
                 }),
@@ -439,6 +433,10 @@ impl MzApp {
         if let Some(last) = &instance.last_launched_at {
             ui.label(self.trf("overview.last_launch", &[("time", last)]));
         }
+        ui.label(self.trf(
+            "overview.play_time",
+            &[("time", &format_play_time(instance.total_play_time_ms))],
+        ));
         if let Some(code) = self.exit_codes.get(&instance.id) {
             ui.label(self.trf("overview.exit_code", &[("code", &code.to_string())]));
         }
@@ -592,88 +590,67 @@ impl MzApp {
     }
 }
 
-fn instance_tile(
-    ui: &mut egui::Ui,
-    app: &MzApp,
-    instance: &Instance,
-    selected: bool,
-) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(136.0, 132.0), egui::Sense::click());
-    let accent = egui::Color32::from_rgb(59, 130, 246);
-    let fill = if selected {
-        egui::Color32::from_rgb(227, 238, 253)
-    } else if response.hovered() {
-        egui::Color32::from_rgb(240, 244, 250)
-    } else {
-        egui::Color32::WHITE
-    };
-    let stroke = if selected || response.hovered() {
-        accent
-    } else {
-        egui::Color32::from_rgb(228, 230, 234)
-    };
+fn instance_icon(ui: &mut egui::Ui, name: &str) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(48.0, 48.0), egui::Sense::hover());
+    let (grass, dirt) = instance_colors(name);
     ui.painter().rect(
         rect,
-        egui::CornerRadius::same(8),
-        fill,
-        egui::Stroke::new(1.0_f32, stroke),
-        egui::StrokeKind::Inside,
-    );
-
-    let icon = egui::Rect::from_center_size(
-        egui::pos2(rect.center().x, rect.top() + 34.0),
-        egui::vec2(48.0, 48.0),
-    );
-    let (grass, dirt) = instance_colors(&instance.name);
-    ui.painter().rect(
-        icon,
         egui::CornerRadius::same(8),
         dirt,
         egui::Stroke::NONE,
         egui::StrokeKind::Inside,
     );
     ui.painter().rect(
-        egui::Rect::from_min_max(icon.min, egui::pos2(icon.max.x, icon.min.y + 15.0)),
+        egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x, rect.min.y + 15.0)),
         egui::CornerRadius::same(6),
         grass,
         egui::Stroke::NONE,
         egui::StrokeKind::Inside,
     );
+}
 
-    let mut name = instance.name.clone();
-    if name.chars().count() > 14 {
-        name = format!("{}…", name.chars().take(13).collect::<String>());
+fn format_last_launch(value: Option<&str>) -> String {
+    let Some(value) = value else {
+        return "—".into();
+    };
+    chrono::DateTime::parse_from_rfc3339(value)
+        .map(|time| {
+            time.with_timezone(&chrono::Local)
+                .format("%Y-%m-%d %H:%M")
+                .to_string()
+        })
+        .unwrap_or_else(|_| value.to_owned())
+}
+
+fn format_play_time(milliseconds: u64) -> String {
+    let seconds = milliseconds / 1000;
+    let days = seconds / 86400;
+    let hours = seconds % 86400 / 3600;
+    let minutes = seconds % 3600 / 60;
+    if days > 0 {
+        format!("{days}d {hours}h")
+    } else if hours > 0 {
+        format!("{hours}h {minutes}m")
+    } else if minutes > 0 {
+        format!("{minutes}m")
+    } else {
+        format!("{seconds}s")
     }
-    ui.painter().text(
-        egui::pos2(rect.center().x, rect.top() + 64.0),
-        egui::Align2::CENTER_TOP,
-        name,
-        egui::FontId::proportional(13.0),
-        egui::Color32::from_rgb(35, 38, 43),
-    );
-    ui.painter().text(
-        egui::pos2(rect.center().x, rect.top() + 86.0),
-        egui::Align2::CENTER_TOP,
-        format!(
-            "{} · {}",
-            instance.game_version,
-            app.tr(loader_key(&instance.loader))
-        ),
-        egui::FontId::proportional(11.0),
-        egui::Color32::from_rgb(120, 126, 134),
-    );
-    ui.painter().text(
-        egui::pos2(rect.center().x, rect.top() + 106.0),
-        egui::Align2::CENTER_TOP,
-        app.tr(status_key(&instance.install_status, None)),
-        egui::FontId::proportional(11.0),
-        if instance.install_status == "installed" {
-            egui::Color32::from_rgb(34, 150, 84)
-        } else {
-            egui::Color32::from_rgb(150, 120, 40)
-        },
-    );
-    response
+}
+
+fn character_ellipsis(text: &str, max_units: usize) -> String {
+    let mut units = 0;
+    let mut output = String::new();
+    for character in text.chars() {
+        let width = if character.is_ascii() { 1 } else { 2 };
+        if units + width > max_units {
+            output.push('…');
+            return output;
+        }
+        units += width;
+        output.push(character);
+    }
+    output
 }
 
 fn instance_colors(name: &str) -> (egui::Color32, egui::Color32) {

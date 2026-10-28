@@ -24,6 +24,7 @@ fn mod_candidates_require_game_version_and_loader_matches() {
         created_at: Utc::now(),
         updated_at: Utc::now(),
         last_launched_at: None,
+        total_play_time_ms: 0,
     };
     let mut file = ModFile {
         provider: ModProvider::Modrinth,

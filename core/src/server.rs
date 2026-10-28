@@ -48,8 +48,8 @@ enum Outgoing {
 }
 
 impl Server {
-    pub fn new(data_dir: Option<PathBuf>) -> CoreResult<Self> {
-        let paths = AppPaths::discover(data_dir)?;
+    pub fn new(data_dir: Option<PathBuf>, log_dir: Option<PathBuf>) -> CoreResult<Self> {
+        let paths = AppPaths::discover(data_dir, log_dir)?;
         paths.initialize()?;
         let config = Arc::new(ConfigManager::load(paths.clone())?);
         let store = Arc::new(Store::open(&paths)?);
@@ -62,8 +62,9 @@ impl Server {
             downloader.clone(),
             config.get().endpoints.clone(),
             runtime_root.clone(),
+            config.clone(),
         );
-        let auth = AuthService::new(config.clone(), store.clone())?;
+        let auth = AuthService::new(config.clone(), store.clone(), paths.clone())?;
         let launch = LaunchService::new(
             paths.clone(),
             store.clone(),
@@ -242,6 +243,11 @@ impl Server {
                     self.paths.root.display().to_string(),
                 );
                 extra.insert(
+                    "instanceDirectory".into(),
+                    self.paths.instances.display().to_string(),
+                );
+                extra.insert("logDirectory".into(), self.paths.logs.display().to_string());
+                extra.insert(
                     "instanceCount".into(),
                     self.store.instances()?.len().to_string(),
                 );
@@ -303,6 +309,10 @@ impl Server {
             "account.refresh" => {
                 let params: AccountRequest = parse_params(&request.params)?;
                 Ok(serde_json::to_value(self.auth.refresh(params.id).await?)?)
+            }
+            "account.skin" => {
+                let params: AccountRequest = parse_params(&request.params)?;
+                Ok(serde_json::to_value(self.auth.skin(params.id).await?)?)
             }
             "account.logout" => {
                 let params: AccountRequest = parse_params(&request.params)?;

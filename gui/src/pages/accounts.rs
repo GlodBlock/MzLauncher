@@ -114,9 +114,9 @@ impl MzApp {
                 }
 
                 crate::card_frame(ui).show(ui, |ui| {
-                    ui.set_min_width(200.0);
-                    ui.set_max_width(200.0);
-                    ui.set_min_height(260.0);
+                    ui.set_min_width(300.0);
+                    ui.set_max_width(300.0);
+                    ui.set_min_height(340.0);
                     ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
                         ui.heading(self.tr("accounts.add_account_short"));
                         ui.label(self.tr("accounts.add_account_hint"));

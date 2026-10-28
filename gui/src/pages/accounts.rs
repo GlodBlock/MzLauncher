@@ -86,7 +86,12 @@ impl MzApp {
                                         .with_main_align(egui::Align::Center),
                                     |ui| {
                                         if ui
-                                            .button(self.tr("accounts.refresh_credentials"))
+                                            .add(account_action_button(
+                                                ui,
+                                                "refresh",
+                                                include_bytes!("../../assets/refresh.png"),
+                                            ))
+                                            .on_hover_text(self.tr("accounts.refresh_credentials"))
                                             .clicked()
                                         {
                                             self.skins.invalidate(&account.id);
@@ -99,8 +104,13 @@ impl MzApp {
                                         if ui
                                             .add_enabled(
                                                 default_id.as_deref() != Some(account.id.as_str()),
-                                                egui::Button::new(self.tr("accounts.set_default")),
+                                                account_action_button(
+                                                    ui,
+                                                    "set-default",
+                                                    include_bytes!("../../assets/set-default.png"),
+                                                ),
                                             )
+                                            .on_hover_text(self.tr("accounts.set_default"))
                                             .clicked()
                                         {
                                             self.call(
@@ -110,7 +120,15 @@ impl MzApp {
                                             );
                                             self.call("settings.get", Value::Null, Value::Null);
                                         }
-                                        if ui.button(self.tr("accounts.logout")).clicked() {
+                                        if ui
+                                            .add(account_action_button(
+                                                ui,
+                                                "logout",
+                                                include_bytes!("../../assets/logout.png"),
+                                            ))
+                                            .on_hover_text(self.tr("accounts.logout"))
+                                            .clicked()
+                                        {
                                             self.call(
                                                 "account.logout",
                                                 json!({"id": account.id}),
@@ -180,4 +198,16 @@ impl MzApp {
             }
         });
     }
+}
+
+fn account_action_button(
+    ui: &egui::Ui,
+    name: &str,
+    png: &'static [u8],
+) -> egui::ImageButton<'static> {
+    let image = egui::Image::from_bytes(format!("bytes://account-{name}.png"), png)
+        .fit_to_exact_size(egui::vec2(18.0, 18.0))
+        .texture_options(egui::TextureOptions::NEAREST)
+        .tint(ui.visuals().text_color());
+    egui::ImageButton::new(image)
 }

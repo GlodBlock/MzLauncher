@@ -239,14 +239,13 @@ struct ProjectedFace {
     shade: f32,
 }
 
-pub fn show_character(ui: &mut egui::Ui, size: egui::Vec2, skin: &SkinTexture, time: f64) {
-    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+fn character_faces(model: &str, height: u32, time: f64) -> Vec<ProjectedFace> {
     let mut faces = Vec::with_capacity(72);
     let phase = time as f32 * 4.2;
     let swing = phase.sin() * 0.55;
-    let slim = skin.model == "slim";
+    let slim = model == "slim";
     let arm_width = if slim { 3.0 } else { 4.0 };
-    let legacy = skin.height < 64;
+    let legacy = height < 64;
 
     push_part(
         &mut faces,
@@ -257,17 +256,15 @@ pub fn show_character(ui: &mut egui::Ui, size: egui::Vec2, skin: &SkinTexture, t
         UvSet::cube(0.0, 0.0, 8.0, 8.0, 8.0),
         1.0,
     );
-    if !legacy {
-        push_part(
-            &mut faces,
-            Vec3::new(0.0, 26.0, 0.0),
-            Vec3::new(8.0, 8.0, 8.0),
-            Vec3::default(),
-            0.0,
-            UvSet::cube(32.0, 0.0, 8.0, 8.0, 8.0),
-            1.08,
-        );
-    }
+    push_part(
+        &mut faces,
+        Vec3::new(0.0, 26.0, 0.0),
+        Vec3::new(8.0, 8.0, 8.0),
+        Vec3::default(),
+        0.0,
+        UvSet::cube(32.0, 0.0, 8.0, 8.0, 8.0),
+        1.08,
+    );
     push_part(
         &mut faces,
         Vec3::new(0.0, 16.0, 0.0),
@@ -379,7 +376,12 @@ pub fn show_character(ui: &mut egui::Ui, size: egui::Vec2, skin: &SkinTexture, t
             1.07,
         );
     }
+    faces
+}
 
+pub fn show_character(ui: &mut egui::Ui, size: egui::Vec2, skin: &SkinTexture, time: f64) {
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let mut faces = character_faces(&skin.model, skin.height, time);
     let yaw = 0.42 + (time as f32 * 0.35).sin() * 0.12;
     let pitch = -0.08;
     for face in &mut faces {
@@ -512,4 +514,66 @@ fn uv_corners(rect: [f32; 4], height: f32) -> [egui::Pos2; 4] {
 fn shade_color(shade: f32) -> egui::Color32 {
     let channel = (255.0 * shade).round().clamp(0.0, 255.0) as u8;
     egui::Color32::from_rgb(channel, channel, channel)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn contains_front(faces: &[ProjectedFace], uv: UvSet) -> bool {
+        faces.iter().any(|face| face.uv == uv.front)
+    }
+
+    #[test]
+    fn modern_skins_include_all_six_overlay_regions() {
+        let faces = character_faces("classic", 64, 0.0);
+        assert_eq!(faces.len(), 72);
+        for uv in [
+            UvSet::cube(32.0, 0.0, 8.0, 8.0, 8.0),
+            UvSet::cube(16.0, 32.0, 8.0, 12.0, 4.0),
+            UvSet::cube(40.0, 32.0, 4.0, 12.0, 4.0),
+            UvSet::cube(48.0, 48.0, 4.0, 12.0, 4.0),
+            UvSet::cube(0.0, 32.0, 4.0, 12.0, 4.0),
+            UvSet::cube(0.0, 48.0, 4.0, 12.0, 4.0),
+        ] {
+            assert!(contains_front(&faces, uv));
+        }
+    }
+
+    #[test]
+    fn legacy_skins_include_only_the_hat_overlay() {
+        let faces = character_faces("classic", 32, 0.0);
+        assert_eq!(faces.len(), 42);
+        assert!(contains_front(
+            &faces,
+            UvSet::cube(32.0, 0.0, 8.0, 8.0, 8.0)
+        ));
+        assert!(!contains_front(
+            &faces,
+            UvSet::cube(16.0, 32.0, 8.0, 12.0, 4.0)
+        ));
+        assert!(!contains_front(
+            &faces,
+            UvSet::cube(40.0, 32.0, 4.0, 12.0, 4.0)
+        ));
+    }
+
+    #[test]
+    fn preserves_semi_transparent_skin_pixels() {
+        let pixels = image::RgbaImage::from_pixel(64, 64, image::Rgba([12, 34, 56, 128]));
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(pixels)
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+        let encoded = STANDARD.encode(bytes.into_inner());
+        let mut cache = SkinCache::default();
+        cache.begin_request("account", "https://example.com/skin.png");
+        cache.complete("account", &encoded, "classic").unwrap();
+        let entry = cache.entries.get("account").unwrap();
+        let pixel = entry.image.as_ref().unwrap().pixels[0];
+        assert_eq!(
+            pixel,
+            egui::Color32::from_rgba_unmultiplied(12, 34, 56, 128)
+        );
+    }
 }

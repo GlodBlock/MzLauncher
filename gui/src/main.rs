@@ -28,6 +28,7 @@ fn main() -> eframe::Result<()> {
         "MzLauncher",
         options,
         Box::new(|cc| {
+            egui_extras::install_image_loaders(&cc.egui_ctx);
             install_cjk_fonts(&cc.egui_ctx);
             Ok(Box::new(app::MzApp::new(cc)))
         }),

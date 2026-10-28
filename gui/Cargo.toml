@@ -8,6 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 eframe = "0.31"
+egui_extras = { version = "0.31", features = ["image"] }
 open = "5.3"
 rfd = "0.15"
 serde = { version = "1.0", features = ["derive"] }

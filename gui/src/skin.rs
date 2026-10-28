@@ -394,7 +394,6 @@ pub fn show_character(ui: &mut egui::Ui, size: egui::Vec2, skin: &SkinTexture, t
     });
 
     let scale = (rect.width() / 25.0).min(rect.height() / 38.0);
-    let center = egui::pos2(rect.center().x, rect.center().y + scale * 1.5);
     let mut mesh = egui::Mesh::with_texture(skin.handle.id());
     for face in faces {
         let base = mesh.vertices.len() as u32;
@@ -404,8 +403,8 @@ pub fn show_character(ui: &mut egui::Ui, size: egui::Vec2, skin: &SkinTexture, t
             let perspective = 64.0 / (64.0 - point.z);
             mesh.vertices.push(egui::epaint::Vertex {
                 pos: egui::pos2(
-                    center.x + point.x * scale * perspective,
-                    center.y - point.y * scale * perspective,
+                    point.x * scale * perspective,
+                    -point.y * scale * perspective,
                 ),
                 uv,
                 color,
@@ -414,6 +413,7 @@ pub fn show_character(ui: &mut egui::Ui, size: egui::Vec2, skin: &SkinTexture, t
         mesh.add_triangle(base, base + 1, base + 2);
         mesh.add_triangle(base, base + 2, base + 3);
     }
+    mesh.translate(rect.center() - mesh.calc_bounds().center());
     ui.painter().add(egui::Shape::mesh(mesh));
 }
 

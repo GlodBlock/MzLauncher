@@ -17,7 +17,7 @@ fn main() -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_title("MzLauncher")
             .with_icon(
-                eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon.png"))
+                eframe::icon_data::from_png_bytes(include_bytes!("../assets/logo-pixel-256.png"))
                     .expect("application icon must be a valid PNG"),
             )
             .with_inner_size([1180.0, 760.0])

@@ -90,69 +90,67 @@ impl MzApp {
                                     self.request_missing_skins();
                                 }
                                 ui.add_space(10.0);
-                                ui.with_layout(
-                                    egui::Layout::left_to_right(egui::Align::Center)
-                                        .with_main_align(egui::Align::Center),
-                                    |ui| {
-                                        if ui
-                                            .add(account_action_button(
+                                ui.horizontal(|ui| {
+                                    let actions_width = account_actions_width(ui);
+                                    let leading_space =
+                                        ((ui.available_width() - actions_width) / 2.0).max(0.0);
+                                    ui.add_space(leading_space);
+                                    if ui
+                                        .add(account_action_button(
+                                            ui,
+                                            "refresh",
+                                            include_bytes!("../../assets/refresh-light.png"),
+                                            include_bytes!("../../assets/refresh-dark.png"),
+                                        ))
+                                        .on_hover_text(self.tr("accounts.refresh_credentials"))
+                                        .clicked()
+                                    {
+                                        self.skins.invalidate(&account.id);
+                                        self.call(
+                                            "account.refresh",
+                                            json!({"id": account.id}),
+                                            Value::Null,
+                                        );
+                                    }
+                                    if ui
+                                        .add_enabled(
+                                            default_id.as_deref() != Some(account.id.as_str()),
+                                            account_action_button(
                                                 ui,
-                                                "refresh",
-                                                include_bytes!("../../assets/refresh-light.png"),
-                                                include_bytes!("../../assets/refresh-dark.png"),
-                                            ))
-                                            .on_hover_text(self.tr("accounts.refresh_credentials"))
-                                            .clicked()
-                                        {
-                                            self.skins.invalidate(&account.id);
-                                            self.call(
-                                                "account.refresh",
-                                                json!({"id": account.id}),
-                                                Value::Null,
-                                            );
-                                        }
-                                        if ui
-                                            .add_enabled(
-                                                default_id.as_deref() != Some(account.id.as_str()),
-                                                account_action_button(
-                                                    ui,
-                                                    "set-default",
-                                                    include_bytes!(
-                                                        "../../assets/set-default-light.png"
-                                                    ),
-                                                    include_bytes!(
-                                                        "../../assets/set-default-dark.png"
-                                                    ),
+                                                "set-default",
+                                                include_bytes!(
+                                                    "../../assets/set-default-light.png"
                                                 ),
-                                            )
-                                            .on_hover_text(self.tr("accounts.set_default"))
-                                            .clicked()
-                                        {
-                                            self.call(
-                                                "account.select",
-                                                json!({"id": account.id}),
-                                                Value::Null,
-                                            );
-                                            self.call("settings.get", Value::Null, Value::Null);
-                                        }
-                                        if ui
-                                            .add(account_action_button(
-                                                ui,
-                                                "logout",
-                                                include_bytes!("../../assets/logout-light.png"),
-                                                include_bytes!("../../assets/logout-dark.png"),
-                                            ))
-                                            .on_hover_text(self.tr("accounts.logout"))
-                                            .clicked()
-                                        {
-                                            self.call(
-                                                "account.logout",
-                                                json!({"id": account.id}),
-                                                Value::Null,
-                                            );
-                                        }
-                                    },
-                                );
+                                                include_bytes!("../../assets/set-default-dark.png"),
+                                            ),
+                                        )
+                                        .on_hover_text(self.tr("accounts.set_default"))
+                                        .clicked()
+                                    {
+                                        self.call(
+                                            "account.select",
+                                            json!({"id": account.id}),
+                                            Value::Null,
+                                        );
+                                        self.call("settings.get", Value::Null, Value::Null);
+                                    }
+                                    if ui
+                                        .add(account_action_button(
+                                            ui,
+                                            "logout",
+                                            include_bytes!("../../assets/logout-light.png"),
+                                            include_bytes!("../../assets/logout-dark.png"),
+                                        ))
+                                        .on_hover_text(self.tr("accounts.logout"))
+                                        .clicked()
+                                    {
+                                        self.call(
+                                            "account.logout",
+                                            json!({"id": account.id}),
+                                            Value::Null,
+                                        );
+                                    }
+                                });
                             },
                         );
                     });
@@ -213,6 +211,12 @@ impl MzApp {
             }
         });
     }
+}
+
+fn account_actions_width(ui: &egui::Ui) -> f32 {
+    let action_count = 3.0;
+    let button_width = ACCOUNT_ACTION_ICON_SIZE.x + ui.spacing().button_padding.x * 2.0;
+    button_width * action_count + ui.spacing().item_spacing.x * (action_count - 1.0)
 }
 
 fn account_action_button(

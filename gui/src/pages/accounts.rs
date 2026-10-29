@@ -33,6 +33,7 @@ impl MzApp {
                 ui.add_space(8.0);
             }
             ui.horizontal_wrapped(|ui| {
+                let mut max_card_height: Option<f32> = None;
                 for account in accounts {
                     let cached = self.skins.texture(&account.id);
                     let loading = self.skins.is_loading(&account.id);
@@ -47,7 +48,7 @@ impl MzApp {
                             fallback
                         }
                     };
-                    crate::card_frame(ui).show(ui, |ui| {
+                    let card = crate::card_frame(ui).show(ui, |ui| {
                         ui.set_width(ACCOUNT_CARD_WIDTH);
                         ui.set_min_height(ACCOUNT_CARD_MIN_HEIGHT);
                         ui.with_layout(
@@ -154,23 +155,36 @@ impl MzApp {
                             },
                         );
                     });
+                    let card_height = card.response.rect.height();
+                    max_card_height =
+                        Some(max_card_height.map_or(card_height, |max| max.max(card_height)));
                     ui.add_space(crate::layout::CARD_LIST_GAP);
                 }
 
                 crate::card_frame(ui).show(ui, |ui| {
                     ui.set_width(ACCOUNT_CARD_WIDTH);
-                    ui.set_min_height(ACCOUNT_CARD_MIN_HEIGHT);
-                    ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                        ui.heading(self.tr("accounts.add_account_short"));
-                        ui.label(self.tr("accounts.add_account_hint"));
-                        if ui
-                            .add_enabled(!waiting, egui::Button::new(self.tr("accounts.login")))
-                            .clicked()
-                        {
-                            self.login = None;
-                            self.call("account.begin_login", Value::Null, Value::Null);
-                        }
-                    });
+                    let content_height = max_card_height
+                        .map(|height| height - 2.0 * crate::layout::CARD_INNER_MARGIN as f32)
+                        .unwrap_or(ACCOUNT_CARD_MIN_HEIGHT)
+                        .max(ACCOUNT_CARD_MIN_HEIGHT);
+                    ui.set_min_height(content_height);
+                    ui.with_layout(
+                        egui::Layout::top_down(egui::Align::Center)
+                            .with_main_align(egui::Align::Min),
+                        |ui| {
+                            let actions_height = add_account_actions_height(ui);
+                            let leading_space = ((content_height - actions_height) / 2.0).max(0.0);
+                            ui.add_space(leading_space);
+                            ui.heading(self.tr("accounts.add_account_short"));
+                            if ui
+                                .add_enabled(!waiting, egui::Button::new(self.tr("accounts.login")))
+                                .clicked()
+                            {
+                                self.login = None;
+                                self.call("account.begin_login", Value::Null, Value::Null);
+                            }
+                        },
+                    );
                 });
             });
             if let Some(session) = self.login.clone() {
@@ -211,6 +225,13 @@ impl MzApp {
             }
         });
     }
+}
+
+fn add_account_actions_height(ui: &egui::Ui) -> f32 {
+    let heading_height = ui.text_style_height(&egui::TextStyle::Heading);
+    let button_height =
+        ui.text_style_height(&egui::TextStyle::Button) + ui.spacing().button_padding.y * 2.0;
+    heading_height + ui.spacing().item_spacing.y + button_height
 }
 
 fn account_actions_width(ui: &egui::Ui) -> f32 {

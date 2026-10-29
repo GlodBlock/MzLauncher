@@ -7,7 +7,7 @@ use crate::pages::home::loader_key;
 impl MzApp {
     pub fn mods_page(&mut self, ui: &mut egui::Ui) {
         ui.heading(self.tr("browser.title"));
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(self.tr("browser.provider"));
             ui.selectable_value(
                 &mut self.browser.provider,
@@ -40,12 +40,24 @@ impl MzApp {
         });
         ui.horizontal(|ui| {
             let search_hint = self.tr("browser.search_hint");
+            let search_label = self.tr("browser.search");
+            let spacing = ui.spacing().item_spacing.x;
+            let spinner_width = if self.browser.searching {
+                ui.spacing().interact_size.y + spacing
+            } else {
+                0.0
+            };
+            let search_width = (ui.available_width()
+                - crate::layout::button_width(ui, &search_label)
+                - spacing
+                - spinner_width)
+                .max(0.0);
             ui.add(
                 egui::TextEdit::singleline(&mut self.browser.query)
-                    .desired_width(320.0)
+                    .desired_width(search_width)
                     .hint_text(search_hint),
             );
-            if ui.button(self.tr("browser.search")).clicked() {
+            if ui.button(search_label).clicked() {
                 self.search_mods();
             }
             if self.browser.searching {
@@ -60,8 +72,9 @@ impl MzApp {
                 ui.label(self.tr("browser.empty"));
             }
             for project in results {
-                egui::Frame::group(ui.style()).show(ui, |ui| {
-                    ui.horizontal(|ui| {
+                crate::card_frame(ui).show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.horizontal_wrapped(|ui| {
                         ui.strong(&project.name);
                         ui.label(if project.provider == "curse_forge" {
                             "CurseForge"
@@ -79,7 +92,7 @@ impl MzApp {
                             let _ = open::that(project.page_url.clone().unwrap());
                         }
                     });
-                    ui.label(&project.summary);
+                    ui.add(egui::Label::new(&project.summary).wrap());
                     let expanded =
                         self.browser.expanded.as_deref() == Some(project.project_id.as_str());
                     if ui
@@ -118,24 +131,33 @@ impl MzApp {
                             ui.label(self.tr("browser.files_empty"));
                         }
                         for file in files {
-                            ui.horizontal(|ui| {
-                                ui.label(format!(
-                                    "{} · {} · {}",
-                                    file.version_name, file.channel, file.file_name
-                                ));
+                            ui.horizontal_wrapped(|ui| {
+                                ui.add(
+                                    egui::Label::new(format!(
+                                        "{} · {} · {}",
+                                        file.version_name, file.channel, file.file_name
+                                    ))
+                                    .wrap(),
+                                );
                                 let loaders = file
                                     .loaders
                                     .iter()
                                     .map(|loader| self.tr(loader_key(loader)))
                                     .collect::<Vec<_>>()
                                     .join(", ");
-                                ui.small(self.trf(
-                                    "browser.file_support",
-                                    &[
-                                        ("versions", &file.game_versions.join(", ")),
-                                        ("loaders", &loaders),
-                                    ],
-                                ));
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(self.trf(
+                                            "browser.file_support",
+                                            &[
+                                                ("versions", &file.game_versions.join(", ")),
+                                                ("loaders", &loaders),
+                                            ],
+                                        ))
+                                        .small(),
+                                    )
+                                    .wrap(),
+                                );
                                 if !file.distribution_allowed {
                                     ui.label(self.tr("browser.manual_download"));
                                 } else if let Some(target) = &target {
@@ -151,7 +173,7 @@ impl MzApp {
                         }
                     }
                 });
-                ui.add_space(4.0);
+                ui.add_space(crate::layout::CARD_LIST_GAP);
             }
         });
     }

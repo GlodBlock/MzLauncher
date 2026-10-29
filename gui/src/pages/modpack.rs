@@ -8,16 +8,29 @@ impl MzApp {
     pub fn modpack_page(&mut self, ui: &mut egui::Ui) {
         ui.heading(self.tr("modpack.title"));
         ui.label(self.tr("modpack.description"));
-        ui.add_space(8.0);
+        ui.add_space(crate::layout::CARD_LIST_GAP);
         ui.horizontal(|ui| {
             ui.label(self.tr("modpack.file"));
             let path_hint = self.tr("modpack.path_hint");
+            let browse_label = self.tr("modpack.browse");
+            let analyze_label = self.tr("modpack.analyze");
+            let spacing = ui.spacing().item_spacing.x;
+            let spinner_width = if self.modpack.analyzing {
+                ui.spacing().interact_size.y + spacing
+            } else {
+                0.0
+            };
+            let actions_width = crate::layout::button_width(ui, &browse_label)
+                + crate::layout::button_width(ui, &analyze_label)
+                + spacing * 2.0
+                + spinner_width;
+            let path_width = (ui.available_width() - actions_width).max(0.0);
             ui.add(
                 egui::TextEdit::singleline(&mut self.modpack.path)
-                    .desired_width(420.0)
+                    .desired_width(path_width)
                     .hint_text(path_hint),
             );
-            if ui.button(self.tr("modpack.browse")).clicked() {
+            if ui.button(browse_label).clicked() {
                 if let Some(path) = rfd::FileDialog::new()
                     .add_filter("Modpack", &["zip", "mrpack"])
                     .pick_file()
@@ -29,7 +42,7 @@ impl MzApp {
             if ui
                 .add_enabled(
                     !self.modpack.path.trim().is_empty() && !self.modpack.analyzing,
-                    egui::Button::new(self.tr("modpack.analyze")),
+                    egui::Button::new(analyze_label),
                 )
                 .clicked()
             {
@@ -92,10 +105,16 @@ impl MzApp {
             }
         }
         ui.separator();
-        ui.horizontal(|ui| {
-            ui.label(self.tr("modpack.instance_name"));
-            ui.text_edit_singleline(&mut self.modpack.name);
-        });
+        egui::Grid::new("modpack_instance_name")
+            .num_columns(2)
+            .show(ui, |ui| {
+                ui.label(self.tr("modpack.instance_name"));
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.modpack.name)
+                        .desired_width(ui.available_width()),
+                );
+                ui.end_row();
+            });
         if ui.button(self.tr("modpack.import")).clicked() {
             let name = self.modpack.name.trim();
             self.call(

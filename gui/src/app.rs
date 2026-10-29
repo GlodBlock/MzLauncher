@@ -546,6 +546,10 @@ fn parse_list<T: serde::de::DeserializeOwned>(value: Value) -> Vec<T> {
     serde_json::from_value(value).unwrap_or_default()
 }
 
+const NAV_WIDTH: f32 = 168.0;
+const NAV_ITEM_HEIGHT: f32 = 38.0;
+const NAV_ACCOUNT_HEIGHT: f32 = 58.0;
+
 impl eframe::App for MzApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let theme = (self.preferences.theme, self.system_dark);
@@ -571,9 +575,9 @@ impl eframe::App for MzApp {
 
         egui::SidePanel::left("nav")
             .resizable(false)
-            .exact_width(168.0)
+            .exact_width(NAV_WIDTH)
             .show(ctx, |ui| {
-                ui.add_space(12.0);
+                ui.add_space(crate::layout::SECTION_GAP);
                 ui.vertical_centered(|ui| {
                     ui.heading(egui::RichText::new("MzLauncher").size(22.0));
                 });
@@ -586,7 +590,7 @@ impl eframe::App for MzApp {
                     let selected = self.page == page;
                     if ui
                         .add_sized(
-                            [ui.available_width(), 38.0],
+                            [ui.available_width(), NAV_ITEM_HEIGHT],
                             egui::SelectableLabel::new(
                                 selected,
                                 egui::RichText::new(self.tr(key)).size(15.0),
@@ -636,18 +640,18 @@ impl eframe::App for MzApp {
                     ));
                 }
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                    ui.add_space(12.0);
+                    ui.add_space(crate::layout::SECTION_GAP);
                     let label = egui::RichText::new(format!("{title}\n{subtitle}")).size(13.0);
                     if ui
                         .add_sized(
-                            [ui.available_width(), 58.0],
+                            [ui.available_width(), NAV_ACCOUNT_HEIGHT],
                             egui::Button::new(label).frame(true),
                         )
                         .clicked()
                     {
                         self.page = Page::Accounts;
                     }
-                    ui.add_space(8.0);
+                    ui.add_space(crate::layout::CARD_LIST_GAP);
                     ui.add(egui::Label::new(egui::RichText::new(status).size(10.0)).truncate());
                 });
             });

@@ -19,7 +19,7 @@ impl MzApp {
                     .cloned()
             })
             .or_else(|| self.accounts.first().cloned());
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(self.tr("home.current_account"));
             match account {
                 Some(account) => {
@@ -34,7 +34,7 @@ impl MzApp {
                 }
             }
         });
-        ui.add_space(12.0);
+        ui.add_space(crate::layout::SECTION_GAP);
 
         ui.heading(self.tr("home.instances"));
         if self.instances.is_empty() {
@@ -45,7 +45,7 @@ impl MzApp {
         }
         let instances = self.instances.clone();
         for instance in instances.iter().take(6) {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.strong(&instance.name);
                 ui.label(format!(
                     "{} · {}",
@@ -64,7 +64,7 @@ impl MzApp {
                 }
             });
         }
-        ui.add_space(12.0);
+        ui.add_space(crate::layout::SECTION_GAP);
 
         ui.heading(self.tr("home.active_jobs"));
         let active: Vec<_> = self
@@ -166,30 +166,35 @@ pub fn job_status_key(status: &str) -> &'static str {
     }
 }
 
+const JOB_PROGRESS_WIDTH: f32 = 140.0;
+
 pub fn job_row(ui: &mut egui::Ui, job: &crate::model::Job, app: &mut MzApp) {
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         let target = job
             .target
             .as_deref()
             .map(|id| app.instance_name(id))
             .unwrap_or_default();
-        ui.label(format!(
-            "{} · {} · {}",
-            app.tr(job_kind_key(&job.kind)),
-            target,
-            app.tr(job_status_key(&job.status))
-        ));
+        ui.add(
+            egui::Label::new(format!(
+                "{} · {} · {}",
+                app.tr(job_kind_key(&job.kind)),
+                target,
+                app.tr(job_status_key(&job.status))
+            ))
+            .wrap(),
+        );
         if let Some(total) = job.progress.total {
             if total > 0 {
                 let fraction = job.progress.completed as f32 / total as f32;
                 ui.add(
                     egui::ProgressBar::new(fraction.clamp(0.0, 1.0))
-                        .desired_width(140.0)
+                        .desired_width(JOB_PROGRESS_WIDTH.min(ui.available_width()))
                         .text(format!("{}/{}", job.progress.completed, total)),
                 );
             }
         }
-        ui.label(&job.progress.stage);
+        ui.add(egui::Label::new(&job.progress.stage).wrap());
         if matches!(job.status.as_str(), "queued" | "running")
             && ui.small_button(app.tr("action.cancel")).clicked()
         {

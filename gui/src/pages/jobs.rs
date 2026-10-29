@@ -16,10 +16,11 @@ impl MzApp {
         let jobs = self.jobs.clone();
         egui::ScrollArea::vertical().show(ui, |ui| {
             for job in &jobs {
-                egui::Frame::group(ui.style()).show(ui, |ui| {
+                crate::card_frame(ui).show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
                     job_row(ui, job, self);
                     if let Some(item) = &job.progress.current_item {
-                        ui.small(item);
+                        ui.add(egui::Label::new(egui::RichText::new(item).small()).wrap());
                     }
                     if let Some(error) = &job.error {
                         ui.colored_label(
@@ -32,11 +33,14 @@ impl MzApp {
                     }
                     if let Some(result) = &job.result {
                         ui.collapsing(self.tr("jobs.result_details"), |ui| {
-                            ui.small(result.to_string());
+                            ui.add(
+                                egui::Label::new(egui::RichText::new(result.to_string()).small())
+                                    .wrap(),
+                            );
                         });
                     }
                 });
-                ui.add_space(4.0);
+                ui.add_space(crate::layout::CARD_LIST_GAP);
             }
         });
     }

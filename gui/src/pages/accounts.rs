@@ -5,6 +5,11 @@ use crate::app::MzApp;
 use crate::pages::home::account_kind_key;
 use crate::skin::show_character;
 
+const ACCOUNT_CARD_WIDTH: f32 = 240.0;
+const ACCOUNT_CARD_MIN_HEIGHT: f32 = 340.0;
+const ACCOUNT_CHARACTER_SIZE: egui::Vec2 = egui::Vec2::new(112.0, 190.0);
+const ACCOUNT_ACTION_ICON_SIZE: egui::Vec2 = egui::Vec2::new(18.0, 18.0);
+
 impl MzApp {
     pub fn accounts_page(&mut self, ui: &mut egui::Ui) {
         ui.heading(self.tr("accounts.title"));
@@ -43,9 +48,8 @@ impl MzApp {
                         }
                     };
                     crate::card_frame(ui).show(ui, |ui| {
-                        ui.set_min_width(240.0);
-                        ui.set_max_width(240.0);
-                        ui.set_min_height(340.0);
+                        ui.set_width(ACCOUNT_CARD_WIDTH);
+                        ui.set_min_height(ACCOUNT_CARD_MIN_HEIGHT);
                         ui.with_layout(
                             egui::Layout::top_down(egui::Align::Center)
                                 .with_main_align(egui::Align::Min),
@@ -53,12 +57,17 @@ impl MzApp {
                                 ui.add_space(8.0);
                                 show_character(
                                     ui,
-                                    egui::vec2(112.0, 190.0),
+                                    ACCOUNT_CHARACTER_SIZE,
                                     &skin,
                                     ui.ctx().input(|input| input.time),
                                 );
-                                ui.add_space(8.0);
-                                ui.strong(egui::RichText::new(&account.name).size(17.0));
+                                ui.add_space(crate::layout::CARD_LIST_GAP);
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(&account.name).size(17.0).strong(),
+                                    )
+                                    .truncate(),
+                                );
                                 ui.label(self.tr(account_kind_key(&account.kind)));
                                 ui.label(self.tr(if account.verified {
                                     "accounts.verified"
@@ -147,13 +156,12 @@ impl MzApp {
                             },
                         );
                     });
-                    ui.add_space(10.0);
+                    ui.add_space(crate::layout::CARD_LIST_GAP);
                 }
 
                 crate::card_frame(ui).show(ui, |ui| {
-                    ui.set_min_width(240.0);
-                    ui.set_max_width(240.0);
-                    ui.set_min_height(340.0);
+                    ui.set_width(ACCOUNT_CARD_WIDTH);
+                    ui.set_min_height(ACCOUNT_CARD_MIN_HEIGHT);
                     ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
                         ui.heading(self.tr("accounts.add_account_short"));
                         ui.label(self.tr("accounts.add_account_hint"));
@@ -168,12 +176,12 @@ impl MzApp {
                 });
             });
             if let Some(session) = self.login.clone() {
-                ui.add_space(12.0);
+                ui.add_space(crate::layout::SECTION_GAP);
                 crate::card_frame(ui).show(ui, |ui| {
                     ui.vertical_centered(|ui| match session.status.as_str() {
                         "waiting" => {
                             ui.label(self.tr("accounts.waiting"));
-                            ui.horizontal(|ui| {
+                            ui.horizontal_wrapped(|ui| {
                                 ui.label(self.tr("accounts.browser_hint"));
                                 if ui.button(self.tr("accounts.open_browser")).clicked() {
                                     let _ = open::that(&session.authorization_url);
@@ -219,6 +227,6 @@ fn account_action_button(
         ("light", light_png)
     };
     let image = egui::Image::from_bytes(format!("bytes://account-{name}-{theme}.png"), png)
-        .fit_to_exact_size(egui::vec2(18.0, 18.0));
+        .fit_to_exact_size(ACCOUNT_ACTION_ICON_SIZE);
     egui::ImageButton::new(image)
 }

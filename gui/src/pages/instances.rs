@@ -5,6 +5,10 @@ use crate::app::{CreateDialog, DetailTab, MzApp, Page};
 use crate::model::Instance;
 use crate::pages::home::{loader_key, status_key};
 
+const INSTANCE_ICON_SIZE: egui::Vec2 = egui::Vec2::new(48.0, 48.0);
+const INSTANCE_ICON_GRASS_HEIGHT: f32 = 15.0;
+const INSTANCE_ROW_CONTENT_HEIGHT: f32 = 64.0;
+
 impl MzApp {
     pub fn open_create_dialog(&mut self) {
         self.page = Page::Instances;
@@ -32,16 +36,20 @@ impl MzApp {
         ui.horizontal(|ui| {
             ui.heading(self.tr("instances.title"));
             let search_hint = self.tr("instances.search_hint");
+            let new_instance_label = self.tr("action.new_instance");
+            let trailing_width = crate::layout::button_width(ui, new_instance_label.as_str());
+            let search_width =
+                (ui.available_width() - trailing_width - ui.spacing().item_spacing.x).max(0.0);
             ui.add(
                 egui::TextEdit::singleline(&mut self.instance_search)
-                    .desired_width(260.0)
+                    .desired_width(search_width)
                     .hint_text(search_hint),
             );
-            if ui.button(self.tr("action.new_instance")).clicked() {
+            if ui.button(new_instance_label).clicked() {
                 self.open_create_dialog();
             }
         });
-        ui.add_space(8.0);
+        ui.add_space(crate::layout::CARD_LIST_GAP);
         let search = self.instance_search.to_lowercase();
         let instances: Vec<Instance> = self
             .instances
@@ -55,7 +63,7 @@ impl MzApp {
         egui::ScrollArea::vertical().show(ui, |ui| {
             for instance in instances {
                 self.instance_row(ui, &instance);
-                ui.add_space(8.0);
+                ui.add_space(crate::layout::CARD_LIST_GAP);
             }
         });
         self.create_dialog(ui.ctx());
@@ -66,16 +74,38 @@ impl MzApp {
         crate::card_frame(ui).show(ui, |ui| {
             let width = ui.available_width();
             ui.set_min_width(width);
+            let running = matches!(
+                self.games.get(&instance.id).map(String::as_str),
+                Some("running" | "starting")
+            );
+            let installed = instance.install_status == "installed";
+            let (primary_symbol, primary_tooltip, primary_method) = if running {
+                ("■", "action.stop_game", "game.stop")
+            } else if installed {
+                ("▶", "action.launch_game", "game.launch")
+            } else {
+                ("⇩", "action.prepare_install", "instance.install")
+            };
             ui.horizontal(|ui| {
                 instance_icon(ui, &instance.name);
-                let action_width = 190.0;
-                let info_width = (width - 48.0 - action_width - 24.0).max(120.0);
+                let spacing = ui.spacing().item_spacing.x;
+                let action_symbols = [primary_symbol, "⚙", "↗", "⋯"];
+                let actions_width = action_symbols
+                    .iter()
+                    .map(|symbol| crate::layout::button_width(ui, *symbol))
+                    .sum::<f32>()
+                    + spacing * (action_symbols.len() - 1) as f32;
+                let info_width = (ui.available_width() - actions_width - spacing).max(0.0);
                 ui.allocate_ui_with_layout(
-                    egui::vec2(info_width, 64.0),
+                    egui::vec2(info_width, INSTANCE_ROW_CONTENT_HEIGHT),
                     egui::Layout::top_down(egui::Align::LEFT),
                     |ui| {
-                        let name = character_ellipsis(&instance.name, 28);
-                        ui.add(egui::Label::new(egui::RichText::new(name).size(17.0).strong()));
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(&instance.name).size(17.0).strong(),
+                            )
+                            .truncate(),
+                        );
                         let version = format!(
                             "{} · {}{}",
                             instance.game_version,
@@ -86,7 +116,7 @@ impl MzApp {
                                 .map(|version| format!(" {version}"))
                                 .unwrap_or_default()
                         );
-                        ui.add(egui::Label::new(version));
+                        ui.add(egui::Label::new(version).truncate());
                         let status = self.tr(status_key(
                             &instance.install_status,
                             self.games.get(&instance.id).map(String::as_str),
@@ -99,41 +129,24 @@ impl MzApp {
                             "instances.play_time",
                             &[("time", &format_play_time(instance.total_play_time_ms))],
                         );
-                        let details = character_ellipsis(&format!("{status} · {last} · {played}"), 54);
-                        ui.small(details);
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(format!("{status} · {last} · {played}")).small(),
+                            )
+                            .truncate(),
+                        );
                     },
                 );
-                let running = matches!(
-                    self.games.get(&instance.id).map(String::as_str),
-                    Some("running" | "starting")
-                );
-                if running {
-                    if ui
-                        .button("■")
-                        .on_hover_text(self.tr("action.stop_game"))
-                        .clicked()
-                    {
-                        self.call(
-                            "game.stop",
-                            json!({"id": instance.id}),
-                            json!({"instanceId": instance.id}),
-                        );
-                    }
-                } else {
-                    let installed = instance.install_status == "installed";
-                    let (symbol, tooltip) = if installed {
-                        ("▶", "action.launch_game")
-                    } else {
-                        ("⇩", "action.prepare_install")
-                    };
-                    if ui.button(symbol).on_hover_text(self.tr(tooltip)).clicked() {
-                        let method = if installed { "game.launch" } else { "instance.install" };
-                        self.call(
-                            method,
-                            json!({"id": instance.id}),
-                            json!({"instanceId": instance.id}),
-                        );
-                    }
+                if ui
+                    .button(primary_symbol)
+                    .on_hover_text(self.tr(primary_tooltip))
+                    .clicked()
+                {
+                    self.call(
+                        primary_method,
+                        json!({"id": instance.id}),
+                        json!({"instanceId": instance.id}),
+                    );
                 }
                 if ui
                     .button("⚙")
@@ -220,96 +233,110 @@ impl MzApp {
             .collapsible(false)
             .resizable(false)
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(self.tr("create.name"));
-                    ui.text_edit_singleline(&mut dialog.name);
-                });
-                let previous_version = dialog.game_version.clone();
-                ui.horizontal(|ui| {
-                    ui.label(self.tr("create.game_version"));
-                    let selected = if dialog.game_version.is_empty() {
-                        self.tr("common.select")
-                    } else {
-                        dialog.game_version.clone()
-                    };
-                    egui::ComboBox::from_id_salt("game_version")
-                        .selected_text(selected)
-                        .width(220.0)
-                        .show_ui(ui, |ui| {
-                            for version in &self.versions {
-                                ui.selectable_value(
-                                    &mut dialog.game_version,
-                                    version.id.clone(),
-                                    format!("{}（{}）", version.id, version.release_type),
-                                );
-                            }
-                        });
-                    if ui
-                        .checkbox(
-                            &mut dialog.include_snapshots,
-                            self.tr("create.include_snapshots"),
-                        )
-                        .changed()
-                    {
-                        self.call(
-                            "version.list",
-                            json!({"includeSnapshots": dialog.include_snapshots}),
-                            Value::Null,
+                egui::Grid::new("create_instance_form")
+                    .num_columns(2)
+                    .show(ui, |ui| {
+                        ui.label(self.tr("create.name"));
+                        ui.add(
+                            egui::TextEdit::singleline(&mut dialog.name)
+                                .desired_width(ui.available_width()),
                         );
-                    }
-                });
-                if previous_version != dialog.game_version && dialog.loader != "vanilla" {
-                    loader_query = Some((dialog.game_version.clone(), dialog.loader.clone()));
-                }
-                let previous_loader = dialog.loader.clone();
-                ui.horizontal(|ui| {
-                    ui.label(self.tr("create.loader"));
-                    for (value, key) in [
-                        ("vanilla", "loader.vanilla"),
-                        ("fabric", "loader.fabric"),
-                        ("forge", "loader.forge"),
-                        ("neo_forge", "loader.neo_forge"),
-                    ] {
-                        ui.selectable_value(&mut dialog.loader, value.to_owned(), self.tr(key));
-                    }
-                });
-                if previous_loader != dialog.loader {
-                    dialog.loader_version.clear();
-                    self.loader_versions.clear();
-                    if dialog.loader != "vanilla" && !dialog.game_version.is_empty() {
-                        loader_query = Some((dialog.game_version.clone(), dialog.loader.clone()));
-                    }
-                }
-                if dialog.loader != "vanilla" {
-                    ui.horizontal(|ui| {
-                        ui.label(self.tr("create.loader_version"));
-                        let selected = if dialog.loader_version.is_empty() {
+                        ui.end_row();
+
+                        let previous_version = dialog.game_version.clone();
+                        ui.label(self.tr("create.game_version"));
+                        let selected = if dialog.game_version.is_empty() {
                             self.tr("common.select")
                         } else {
-                            dialog.loader_version.clone()
+                            dialog.game_version.clone()
                         };
-                        egui::ComboBox::from_id_salt("loader_version")
+                        egui::ComboBox::from_id_salt("game_version")
                             .selected_text(selected)
-                            .width(220.0)
                             .show_ui(ui, |ui| {
-                                for version in &self.loader_versions {
+                                for version in &self.versions {
                                     ui.selectable_value(
-                                        &mut dialog.loader_version,
-                                        version.version.clone(),
-                                        format!(
-                                            "{}{}",
-                                            version.version,
-                                            if version.stable {
-                                                self.tr("create.stable_suffix")
-                                            } else {
-                                                String::new()
-                                            }
-                                        ),
+                                        &mut dialog.game_version,
+                                        version.id.clone(),
+                                        format!("{}（{}）", version.id, version.release_type),
                                     );
                                 }
                             });
+                        ui.end_row();
+
+                        ui.label("");
+                        if ui
+                            .checkbox(
+                                &mut dialog.include_snapshots,
+                                self.tr("create.include_snapshots"),
+                            )
+                            .changed()
+                        {
+                            self.call(
+                                "version.list",
+                                json!({"includeSnapshots": dialog.include_snapshots}),
+                                Value::Null,
+                            );
+                        }
+                        ui.end_row();
+
+                        if previous_version != dialog.game_version && dialog.loader != "vanilla" {
+                            loader_query =
+                                Some((dialog.game_version.clone(), dialog.loader.clone()));
+                        }
+                        let previous_loader = dialog.loader.clone();
+                        ui.label(self.tr("create.loader"));
+                        ui.horizontal_wrapped(|ui| {
+                            for (value, key) in [
+                                ("vanilla", "loader.vanilla"),
+                                ("fabric", "loader.fabric"),
+                                ("forge", "loader.forge"),
+                                ("neo_forge", "loader.neo_forge"),
+                            ] {
+                                ui.selectable_value(
+                                    &mut dialog.loader,
+                                    value.to_owned(),
+                                    self.tr(key),
+                                );
+                            }
+                        });
+                        ui.end_row();
+                        if previous_loader != dialog.loader {
+                            dialog.loader_version.clear();
+                            self.loader_versions.clear();
+                            if dialog.loader != "vanilla" && !dialog.game_version.is_empty() {
+                                loader_query =
+                                    Some((dialog.game_version.clone(), dialog.loader.clone()));
+                            }
+                        }
+                        if dialog.loader != "vanilla" {
+                            ui.label(self.tr("create.loader_version"));
+                            let selected = if dialog.loader_version.is_empty() {
+                                self.tr("common.select")
+                            } else {
+                                dialog.loader_version.clone()
+                            };
+                            egui::ComboBox::from_id_salt("loader_version")
+                                .selected_text(selected)
+                                .show_ui(ui, |ui| {
+                                    for version in &self.loader_versions {
+                                        ui.selectable_value(
+                                            &mut dialog.loader_version,
+                                            version.version.clone(),
+                                            format!(
+                                                "{}{}",
+                                                version.version,
+                                                if version.stable {
+                                                    self.tr("create.stable_suffix")
+                                                } else {
+                                                    String::new()
+                                                }
+                                            ),
+                                        );
+                                    }
+                                });
+                            ui.end_row();
+                        }
                     });
-                }
                 ui.separator();
                 ui.horizontal(|ui| {
                     if ui.button(self.tr("action.cancel")).clicked() {
@@ -367,7 +394,7 @@ impl MzApp {
             }
             return;
         };
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             if ui.button(self.tr("action.back_to_list")).clicked() {
                 self.selected_instance = None;
                 return;
@@ -380,7 +407,7 @@ impl MzApp {
             ));
             self.instance_buttons(ui, id, &instance.install_status);
         });
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             for (tab, key) in [
                 (DetailTab::Overview, "tab.overview"),
                 (DetailTab::Mods, "tab.mods"),
@@ -476,7 +503,7 @@ impl MzApp {
     }
 
     fn instance_mods(&mut self, ui: &mut egui::Ui, id: &str) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             if ui.button(self.tr("action.refresh")).clicked() {
                 self.refresh_mods(id);
             }
@@ -496,7 +523,7 @@ impl MzApp {
         }
         egui::ScrollArea::vertical().show(ui, |ui| {
             for installed in mods {
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     let mut enabled = installed.enabled;
                     if ui.checkbox(&mut enabled, "").changed() {
                         self.call(
@@ -505,8 +532,13 @@ impl MzApp {
                             json!({"instanceId": id}),
                         );
                     }
-                    ui.strong(&installed.file.project_name);
-                    ui.label(&installed.file.version_name);
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(&installed.file.project_name).strong(),
+                        )
+                        .wrap(),
+                    );
+                    ui.add(egui::Label::new(&installed.file.version_name).wrap());
                     ui.label(if installed.managed {
                         installed.file.provider.clone()
                     } else {
@@ -553,30 +585,41 @@ impl MzApp {
         if draft.id != id {
             return;
         }
-        ui.horizontal(|ui| {
-            ui.label(self.tr("launch.java_path"));
-            let mut java = draft.java_path.clone().unwrap_or_default();
-            if ui.text_edit_singleline(&mut java).changed() {
-                draft.java_path = if java.trim().is_empty() {
-                    None
-                } else {
-                    Some(java.trim().to_owned())
-                };
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.label(self.tr("launch.min_memory"));
-            ui.add(egui::DragValue::new(&mut draft.min_memory_mb).range(256..=65536));
-            ui.label(self.tr("launch.max_memory"));
-            ui.add(egui::DragValue::new(&mut draft.max_memory_mb).range(256..=65536));
-        });
-        ui.horizontal(|ui| {
-            ui.label(self.tr("launch.jvm_args"));
-            let mut args = draft.jvm_args.join(" ");
-            if ui.text_edit_singleline(&mut args).changed() {
-                draft.jvm_args = args.split_whitespace().map(str::to_owned).collect();
-            }
-        });
+        egui::Grid::new("instance_launch_settings")
+            .num_columns(2)
+            .show(ui, |ui| {
+                ui.label(self.tr("launch.java_path"));
+                let mut java = draft.java_path.clone().unwrap_or_default();
+                if ui
+                    .add(egui::TextEdit::singleline(&mut java).desired_width(ui.available_width()))
+                    .changed()
+                {
+                    draft.java_path = if java.trim().is_empty() {
+                        None
+                    } else {
+                        Some(java.trim().to_owned())
+                    };
+                }
+                ui.end_row();
+
+                ui.label(self.tr("launch.min_memory"));
+                ui.add(egui::DragValue::new(&mut draft.min_memory_mb).range(256..=65536));
+                ui.end_row();
+
+                ui.label(self.tr("launch.max_memory"));
+                ui.add(egui::DragValue::new(&mut draft.max_memory_mb).range(256..=65536));
+                ui.end_row();
+
+                ui.label(self.tr("launch.jvm_args"));
+                let mut args = draft.jvm_args.join(" ");
+                if ui
+                    .add(egui::TextEdit::singleline(&mut args).desired_width(ui.available_width()))
+                    .changed()
+                {
+                    draft.jvm_args = args.split_whitespace().map(str::to_owned).collect();
+                }
+                ui.end_row();
+            });
         if ui.button(self.tr("launch.save")).clicked() {
             match serde_json::to_value(&draft) {
                 Ok(value) => self.call("instance.update", value, Value::Null),
@@ -591,7 +634,7 @@ impl MzApp {
 }
 
 fn instance_icon(ui: &mut egui::Ui, name: &str) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(48.0, 48.0), egui::Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(INSTANCE_ICON_SIZE, egui::Sense::hover());
     let (grass, dirt) = instance_colors(name);
     ui.painter().rect(
         rect,
@@ -601,7 +644,10 @@ fn instance_icon(ui: &mut egui::Ui, name: &str) {
         egui::StrokeKind::Inside,
     );
     ui.painter().rect(
-        egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x, rect.min.y + 15.0)),
+        egui::Rect::from_min_max(
+            rect.min,
+            egui::pos2(rect.max.x, rect.min.y + INSTANCE_ICON_GRASS_HEIGHT),
+        ),
         egui::CornerRadius::same(6),
         grass,
         egui::Stroke::NONE,
@@ -636,21 +682,6 @@ fn format_play_time(milliseconds: u64) -> String {
     } else {
         format!("{seconds}s")
     }
-}
-
-fn character_ellipsis(text: &str, max_units: usize) -> String {
-    let mut units = 0;
-    let mut output = String::new();
-    for character in text.chars() {
-        let width = if character.is_ascii() { 1 } else { 2 };
-        if units + width > max_units {
-            output.push('…');
-            return output;
-        }
-        units += width;
-        output.push(character);
-    }
-    output
 }
 
 fn instance_colors(name: &str) -> (egui::Color32, egui::Color32) {

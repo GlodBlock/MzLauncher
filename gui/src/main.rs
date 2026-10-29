@@ -3,6 +3,7 @@
 mod app;
 mod client;
 mod i18n;
+mod layout;
 mod log;
 mod model;
 mod pages;
@@ -12,6 +13,9 @@ mod skin;
 use eframe::egui;
 use preferences::ThemePreference;
 
+const DEFAULT_WINDOW_SIZE: [f32; 2] = [1180.0, 760.0];
+const MIN_WINDOW_SIZE: [f32; 2] = [900.0, 600.0];
+
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -20,8 +24,8 @@ fn main() -> eframe::Result<()> {
                 eframe::icon_data::from_png_bytes(include_bytes!("../assets/logo-pixel-256.png"))
                     .expect("application icon must be a valid PNG"),
             )
-            .with_inner_size([1180.0, 760.0])
-            .with_min_inner_size([900.0, 600.0]),
+            .with_inner_size(DEFAULT_WINDOW_SIZE)
+            .with_min_inner_size(MIN_WINDOW_SIZE),
         ..Default::default()
     };
     eframe::run_native(
@@ -82,13 +86,13 @@ pub fn apply_theme(ctx: &egui::Context, theme: ThemePreference, system_dark: boo
     ] {
         widget.corner_radius = egui::CornerRadius::same(7);
     }
-    style.spacing.item_spacing = egui::vec2(10.0, 8.0);
-    style.spacing.button_padding = egui::vec2(12.0, 6.0);
+    style.spacing.item_spacing = layout::ITEM_SPACING;
+    style.spacing.button_padding = layout::BUTTON_PADDING;
     ctx.set_style(style);
 }
 
 pub fn card_frame(ui: &egui::Ui) -> egui::Frame {
-    egui::Frame::group(ui.style()).inner_margin(egui::Margin::same(14))
+    egui::Frame::group(ui.style()).inner_margin(egui::Margin::same(layout::CARD_INNER_MARGIN))
 }
 
 fn install_cjk_fonts(ctx: &egui::Context) {

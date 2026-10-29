@@ -34,12 +34,12 @@ impl MzApp {
             }
             ui.horizontal_wrapped(|ui| {
                 for account in accounts {
-                    let cached = self.skins.texture(ui.ctx(), &account.id);
+                    let cached = self.skins.texture(&account.id);
                     let loading = self.skins.is_loading(&account.id);
                     let skin = match cached {
                         Some(skin) => skin,
                         None => {
-                            let mut fallback = self.skins.fallback(ui.ctx());
+                            let mut fallback = self.skins.fallback();
                             fallback.model = account
                                 .skin_model
                                 .clone()

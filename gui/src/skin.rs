@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -6,7 +7,7 @@ use eframe::egui;
 
 #[derive(Clone)]
 pub struct SkinTexture {
-    pub handle: egui::TextureHandle,
+    pub image: Arc<egui::ColorImage>,
     pub model: String,
     pub height: u32,
 }
@@ -23,7 +24,7 @@ struct SkinEntry {
 #[derive(Default)]
 pub struct SkinCache {
     entries: HashMap<String, SkinEntry>,
-    fallback: Option<egui::TextureHandle>,
+    fallback: Option<SkinTexture>,
 }
 
 impl SkinCache {
@@ -92,18 +93,13 @@ impl SkinCache {
         }
     }
 
-    pub fn texture(&mut self, ctx: &egui::Context, id: &str) -> Option<SkinTexture> {
+    pub fn texture(&mut self, id: &str) -> Option<SkinTexture> {
         let entry = self.entries.get_mut(id)?;
         if entry.texture.is_none() {
-            let image = entry.image.take()?;
+            let image = Arc::new(entry.image.take()?);
             let height = image.height() as u32;
-            let handle = ctx.load_texture(
-                format!("account-skin-{id}"),
-                image,
-                egui::TextureOptions::NEAREST,
-            );
             entry.texture = Some(SkinTexture {
-                handle,
+                image,
                 model: entry.model.clone(),
                 height,
             });
@@ -129,31 +125,23 @@ impl SkinCache {
         self.entries.remove(id);
     }
 
-    pub fn fallback(&mut self, ctx: &egui::Context) -> SkinTexture {
-        let handle = self
-            .fallback
-            .get_or_insert_with(|| {
-                let mut image =
-                    egui::ColorImage::new([64, 64], egui::Color32::from_rgb(123, 145, 174));
-                for y in 0..64 {
-                    for x in 0..64 {
-                        if (x / 8 + y / 8) % 2 == 0 {
-                            image[(x, y)] = egui::Color32::from_rgb(143, 165, 194);
-                        }
+    pub fn fallback(&mut self) -> SkinTexture {
+        if self.fallback.is_none() {
+            let mut image = egui::ColorImage::new([64, 64], egui::Color32::from_rgb(123, 145, 174));
+            for y in 0..64 {
+                for x in 0..64 {
+                    if (x / 8 + y / 8) % 2 == 0 {
+                        image[(x, y)] = egui::Color32::from_rgb(143, 165, 194);
                     }
                 }
-                ctx.load_texture(
-                    "account-skin-fallback",
-                    image,
-                    egui::TextureOptions::NEAREST,
-                )
-            })
-            .clone();
-        SkinTexture {
-            handle,
-            model: "classic".into(),
-            height: 64,
+            }
+            self.fallback = Some(SkinTexture {
+                image: Arc::new(image),
+                model: "classic".into(),
+                height: 64,
+            });
         }
+        self.fallback.clone().unwrap()
     }
 }
 
@@ -379,44 +367,187 @@ fn character_faces(model: &str, height: u32, time: f64) -> Vec<ProjectedFace> {
     faces
 }
 
+const CAMERA_DISTANCE: f32 = 64.0;
+const RENDER_SUPERSAMPLE: f32 = 2.0;
+
+#[derive(Clone, Copy, Default)]
+struct RasterVertex {
+    x: f32,
+    y: f32,
+    inv_w: f32,
+    u_over_w: f32,
+    v_over_w: f32,
+}
+
+#[derive(Clone)]
+struct CharacterRender {
+    texture: egui::TextureHandle,
+    image: egui::ColorImage,
+    depth: Vec<f32>,
+}
+
 pub fn show_character(ui: &mut egui::Ui, size: egui::Vec2, skin: &SkinTexture, time: f64) {
     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-    let mut faces = character_faces(&skin.model, skin.height, time);
+    let render_scale = ui.ctx().pixels_per_point() * RENDER_SUPERSAMPLE;
+    let width = (rect.width() * render_scale).ceil().max(1.0) as usize;
+    let height = (rect.height() * render_scale).ceil().max(1.0) as usize;
+    let faces = character_faces(&skin.model, skin.height, time);
     let yaw = 0.42 + (time as f32 * 0.35).sin() * 0.12;
     let pitch = -0.08;
-    for face in &mut faces {
-        for point in &mut face.points {
-            *point = point.rotate_y(yaw).rotate_x(pitch);
-        }
-    }
-    faces.sort_by(|a, b| {
-        let depth_a = a.points.iter().map(|point| point.z).sum::<f32>();
-        let depth_b = b.points.iter().map(|point| point.z).sum::<f32>();
-        depth_a.total_cmp(&depth_b)
-    });
+    let scale = (rect.width() / 25.0).min(rect.height() / 38.0) * render_scale;
 
-    let scale = (rect.width() / 25.0).min(rect.height() / 38.0);
-    let mut mesh = egui::Mesh::with_texture(skin.handle.id());
-    for face in faces {
-        let base = mesh.vertices.len() as u32;
-        let color = shade_color(face.shade);
+    let mut projected = Vec::with_capacity(faces.len());
+    let mut min = egui::vec2(f32::INFINITY, f32::INFINITY);
+    let mut max = egui::vec2(f32::NEG_INFINITY, f32::NEG_INFINITY);
+    for face in &faces {
+        let mut vertices = [RasterVertex::default(); 4];
         let uvs = uv_corners(face.uv, skin.height as f32);
-        for (point, uv) in face.points.into_iter().zip(uvs) {
-            let perspective = 64.0 / (64.0 - point.z);
-            mesh.vertices.push(egui::epaint::Vertex {
-                pos: egui::pos2(
-                    point.x * scale * perspective,
-                    -point.y * scale * perspective,
-                ),
-                uv,
-                color,
-            });
+        for (slot, (point, uv)) in vertices.iter_mut().zip(face.points.into_iter().zip(uvs)) {
+            let point = point.rotate_y(yaw).rotate_x(pitch);
+            let inv_w = 1.0 / (CAMERA_DISTANCE - point.z);
+            let perspective = CAMERA_DISTANCE * inv_w;
+            let x = point.x * scale * perspective;
+            let y = -point.y * scale * perspective;
+            min = min.min(egui::vec2(x, y));
+            max = max.max(egui::vec2(x, y));
+            *slot = RasterVertex {
+                x,
+                y,
+                inv_w,
+                u_over_w: uv.x * inv_w,
+                v_over_w: uv.y * inv_w,
+            };
         }
-        mesh.add_triangle(base, base + 1, base + 2);
-        mesh.add_triangle(base, base + 2, base + 3);
+        let shade = (face.shade * 255.0).round().clamp(0.0, 255.0) as u8;
+        projected.push((vertices, shade));
     }
-    mesh.translate(rect.center() - mesh.calc_bounds().center());
-    ui.painter().add(egui::Shape::mesh(mesh));
+    let offset = egui::vec2(width as f32, height as f32) * 0.5 - (min + max) * 0.5;
+
+    let render_id = ui.id().with("character-render");
+    let cached = ui
+        .ctx()
+        .data_mut(|data| data.get_temp::<CharacterRender>(render_id))
+        .is_some();
+    if !cached {
+        let render = CharacterRender {
+            texture: ui.ctx().load_texture(
+                "character-render",
+                egui::ColorImage::new([1, 1], egui::Color32::TRANSPARENT),
+                egui::TextureOptions::LINEAR,
+            ),
+            image: egui::ColorImage::new([1, 1], egui::Color32::TRANSPARENT),
+            depth: vec![0.0],
+        };
+        ui.ctx()
+            .data_mut(|data| data.insert_temp(render_id, render));
+    }
+    let texture_id = ui.ctx().data_mut(|data| {
+        let render = data.get_temp_mut_or_insert_with::<CharacterRender>(render_id, || {
+            unreachable!("character render cache initialized above")
+        });
+        if render.image.size != [width, height] {
+            render.image = egui::ColorImage::new([width, height], egui::Color32::TRANSPARENT);
+            render.depth = vec![0.0; width * height];
+        } else {
+            render.image.pixels.fill(egui::Color32::TRANSPARENT);
+            render.depth.fill(0.0);
+        }
+        for (mut vertices, shade) in projected {
+            for vertex in &mut vertices {
+                vertex.x += offset.x;
+                vertex.y += offset.y;
+            }
+            rasterize_triangle(
+                &mut render.image,
+                &mut render.depth,
+                [vertices[0], vertices[1], vertices[2]],
+                shade,
+                &skin.image,
+            );
+            rasterize_triangle(
+                &mut render.image,
+                &mut render.depth,
+                [vertices[0], vertices[2], vertices[3]],
+                shade,
+                &skin.image,
+            );
+        }
+        render
+            .texture
+            .set(render.image.clone(), egui::TextureOptions::LINEAR);
+        Some(render.texture.id())
+    });
+    let Some(texture_id) = texture_id else {
+        return;
+    };
+    ui.painter().image(
+        texture_id,
+        rect,
+        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+        egui::Color32::WHITE,
+    );
+}
+
+fn rasterize_triangle(
+    image: &mut egui::ColorImage,
+    depth: &mut [f32],
+    [a, b, c]: [RasterVertex; 3],
+    shade: u8,
+    texture: &egui::ColorImage,
+) {
+    let edge = |from: RasterVertex, to: RasterVertex, x: f32, y: f32| {
+        (x - from.x) * (to.y - from.y) - (y - from.y) * (to.x - from.x)
+    };
+    let area = edge(a, b, c.x, c.y);
+    if area.abs() < f32::EPSILON {
+        return;
+    }
+    let width = image.width();
+    let height = image.height();
+    let min_x = a.x.min(b.x).min(c.x).floor().max(0.0) as usize;
+    let max_x = (a.x.max(b.x).max(c.x).ceil().max(0.0) as usize).min(width - 1);
+    let min_y = a.y.min(b.y).min(c.y).floor().max(0.0) as usize;
+    let max_y = (a.y.max(b.y).max(c.y).ceil().max(0.0) as usize).min(height - 1);
+    let texture_width = texture.width();
+    let texture_height = texture.height();
+    for y in min_y..=max_y {
+        for x in min_x..=max_x {
+            let px = x as f32 + 0.5;
+            let py = y as f32 + 0.5;
+            let weight_a = edge(b, c, px, py) / area;
+            let weight_b = edge(c, a, px, py) / area;
+            let weight_c = edge(a, b, px, py) / area;
+            if weight_a < 0.0 || weight_b < 0.0 || weight_c < 0.0 {
+                continue;
+            }
+            let inv_w = weight_a * a.inv_w + weight_b * b.inv_w + weight_c * c.inv_w;
+            if inv_w <= 0.0 {
+                continue;
+            }
+            let index = y * width + x;
+            if inv_w <= depth[index] {
+                continue;
+            }
+            let u = (weight_a * a.u_over_w + weight_b * b.u_over_w + weight_c * c.u_over_w) / inv_w;
+            let v = (weight_a * a.v_over_w + weight_b * b.v_over_w + weight_c * c.v_over_w) / inv_w;
+            let texel_x = ((u * texture_width as f32) as usize).min(texture_width - 1);
+            let texel_y = ((v * texture_height as f32) as usize).min(texture_height - 1);
+            let sample = texture[(texel_x, texel_y)];
+            if sample.a() == 0 {
+                continue;
+            }
+            let shaded = egui::Color32::from_rgba_unmultiplied(
+                (sample.r() as u16 * shade as u16 / 255) as u8,
+                (sample.g() as u16 * shade as u16 / 255) as u8,
+                (sample.b() as u16 * shade as u16 / 255) as u8,
+                sample.a(),
+            );
+            image[(x, y)] = image[(x, y)].blend(shaded);
+            if sample.a() > 127 {
+                depth[index] = inv_w;
+            }
+        }
+    }
 }
 
 fn push_part(
@@ -511,11 +642,6 @@ fn uv_corners(rect: [f32; 4], height: f32) -> [egui::Pos2; 4] {
     ]
 }
 
-fn shade_color(shade: f32) -> egui::Color32 {
-    let channel = (255.0 * shade).round().clamp(0.0, 255.0) as u8;
-    egui::Color32::from_rgb(channel, channel, channel)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -556,6 +682,47 @@ mod tests {
             &faces,
             UvSet::cube(40.0, 32.0, 4.0, 12.0, 4.0)
         ));
+    }
+
+    #[test]
+    fn depth_buffer_resolves_occlusion_regardless_of_draw_order() {
+        let mut texture = egui::ColorImage::new([2, 1], egui::Color32::RED);
+        texture[(1, 0)] = egui::Color32::BLUE;
+
+        let quad = |inv_w: f32, u0: f32, u1: f32| {
+            let vertex = |x: f32, y: f32, u: f32, v: f32| RasterVertex {
+                x,
+                y,
+                inv_w,
+                u_over_w: u * inv_w,
+                v_over_w: v * inv_w,
+            };
+            [
+                [
+                    vertex(0.0, 0.0, u0, 0.0),
+                    vertex(4.0, 0.0, u1, 0.0),
+                    vertex(4.0, 4.0, u1, 1.0),
+                ],
+                [
+                    vertex(0.0, 0.0, u0, 0.0),
+                    vertex(4.0, 4.0, u1, 1.0),
+                    vertex(0.0, 4.0, u0, 1.0),
+                ],
+            ]
+        };
+        let near = quad(0.5, 0.0, 0.5);
+        let far = quad(0.25, 0.5, 1.0);
+
+        for order in [[near, far], [far, near]] {
+            let mut image = egui::ColorImage::new([4, 4], egui::Color32::TRANSPARENT);
+            let mut depth = vec![0.0; 16];
+            for triangles in order {
+                for triangle in triangles {
+                    rasterize_triangle(&mut image, &mut depth, triangle, 255, &texture);
+                }
+            }
+            assert_eq!(image[(2, 2)], egui::Color32::RED);
+        }
     }
 
     #[test]

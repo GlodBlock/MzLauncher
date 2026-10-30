@@ -316,6 +316,7 @@ impl MzApp {
                                 "settings.endpoint.curseforge",
                                 &mut draft.endpoints.curseforge_api,
                             ),
+                            ("settings.endpoint.ftb", &mut draft.endpoints.ftb_api),
                         ] {
                             ui.label(self.tr(key));
                             ui.add(

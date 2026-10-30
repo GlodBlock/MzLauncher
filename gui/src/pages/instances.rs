@@ -1,34 +1,50 @@
 use eframe::egui;
 use serde_json::{json, Value};
 
-use crate::app::{CreateDialog, DetailTab, MzApp, Page};
+use crate::app::{DetailTab, MzApp, NewInstanceState, NewInstanceTab, Page};
 use crate::model::Instance;
 use crate::pages::home::{loader_key, status_key};
 
 const INSTANCE_ICON_SIZE: egui::Vec2 = egui::Vec2::new(48.0, 48.0);
 const INSTANCE_ICON_GRASS_HEIGHT: f32 = 15.0;
 const INSTANCE_ROW_CONTENT_HEIGHT: f32 = 64.0;
+const NEW_INSTANCE_BAR_HEIGHT: f32 = 48.0;
+const NEW_INSTANCE_ICON_SIZE: egui::Vec2 = egui::Vec2::new(18.0, 18.0);
 
 impl MzApp {
     pub fn open_create_dialog(&mut self) {
         self.page = Page::Instances;
         self.selected_instance = None;
-        self.create = Some(CreateDialog {
+        self.create = Some(NewInstanceState {
             name: String::new(),
             game_version: String::new(),
             loader: "vanilla".into(),
             loader_version: String::new(),
             include_snapshots: false,
+            tab: NewInstanceTab::CurseForge,
+            creating: false,
         });
+        self.modpack.path.clear();
+        self.modpack.name.clear();
+        self.modpack.analysis = None;
+        self.modpack.analyzing = false;
+        self.modpack.importing = false;
         self.versions.clear();
+        self.loader_versions.clear();
         self.call(
             "version.list",
             json!({"includeSnapshots": false}),
-            Value::Null,
+            json!({"includeSnapshots": false}),
         );
+        self.search_modpacks();
     }
 
     pub fn instances_page(&mut self, ui: &mut egui::Ui) {
+        if self.create.is_some() {
+            self.new_instance_page(ui);
+            self.delete_dialog(ui.ctx());
+            return;
+        }
         if let Some(id) = self.selected_instance.clone() {
             self.instance_detail(ui, &id);
             return;
@@ -36,18 +52,11 @@ impl MzApp {
         ui.horizontal(|ui| {
             ui.heading(self.tr("instances.title"));
             let search_hint = self.tr("instances.search_hint");
-            let new_instance_label = self.tr("action.new_instance");
-            let trailing_width = crate::layout::button_width(ui, new_instance_label.as_str());
-            let search_width =
-                (ui.available_width() - trailing_width - ui.spacing().item_spacing.x).max(0.0);
             ui.add(
                 egui::TextEdit::singleline(&mut self.instance_search)
-                    .desired_width(search_width)
+                    .desired_width(ui.available_width())
                     .hint_text(search_hint),
             );
-            if ui.button(new_instance_label).clicked() {
-                self.open_create_dialog();
-            }
         });
         ui.add_space(crate::layout::CARD_LIST_GAP);
         let search = self.instance_search.to_lowercase();
@@ -60,13 +69,16 @@ impl MzApp {
         if instances.is_empty() {
             ui.label(self.tr("instances.empty"));
         }
+        if new_instance_button(ui, &self.tr("action.new_instance")).clicked() {
+            self.open_create_dialog();
+        }
+        ui.add_space(crate::layout::CARD_LIST_GAP);
         egui::ScrollArea::vertical().show(ui, |ui| {
             for instance in instances {
                 self.instance_row(ui, &instance);
                 ui.add_space(crate::layout::CARD_LIST_GAP);
             }
         });
-        self.create_dialog(ui.ctx());
         self.delete_dialog(ui.ctx());
     }
 
@@ -219,170 +231,6 @@ impl MzApp {
         }
         if confirm || cancel {
             self.confirm_delete = None;
-        }
-    }
-
-    fn create_dialog(&mut self, ctx: &egui::Context) {
-        let Some(mut dialog) = self.create.clone() else {
-            return;
-        };
-        let mut submit = false;
-        let mut cancel = false;
-        let mut loader_query = None;
-        egui::Window::new(self.tr("create.title"))
-            .collapsible(false)
-            .resizable(false)
-            .show(ctx, |ui| {
-                egui::Grid::new("create_instance_form")
-                    .num_columns(2)
-                    .show(ui, |ui| {
-                        ui.label(self.tr("create.name"));
-                        ui.add(
-                            egui::TextEdit::singleline(&mut dialog.name)
-                                .desired_width(ui.available_width()),
-                        );
-                        ui.end_row();
-
-                        let previous_version = dialog.game_version.clone();
-                        ui.label(self.tr("create.game_version"));
-                        let selected = if dialog.game_version.is_empty() {
-                            self.tr("common.select")
-                        } else {
-                            dialog.game_version.clone()
-                        };
-                        egui::ComboBox::from_id_salt("game_version")
-                            .selected_text(selected)
-                            .show_ui(ui, |ui| {
-                                for version in &self.versions {
-                                    ui.selectable_value(
-                                        &mut dialog.game_version,
-                                        version.id.clone(),
-                                        format!("{}（{}）", version.id, version.release_type),
-                                    );
-                                }
-                            });
-                        ui.end_row();
-
-                        ui.label("");
-                        if ui
-                            .checkbox(
-                                &mut dialog.include_snapshots,
-                                self.tr("create.include_snapshots"),
-                            )
-                            .changed()
-                        {
-                            self.call(
-                                "version.list",
-                                json!({"includeSnapshots": dialog.include_snapshots}),
-                                Value::Null,
-                            );
-                        }
-                        ui.end_row();
-
-                        if previous_version != dialog.game_version && dialog.loader != "vanilla" {
-                            loader_query =
-                                Some((dialog.game_version.clone(), dialog.loader.clone()));
-                        }
-                        let previous_loader = dialog.loader.clone();
-                        ui.label(self.tr("create.loader"));
-                        ui.horizontal_wrapped(|ui| {
-                            for (value, key) in [
-                                ("vanilla", "loader.vanilla"),
-                                ("fabric", "loader.fabric"),
-                                ("forge", "loader.forge"),
-                                ("neo_forge", "loader.neo_forge"),
-                            ] {
-                                ui.selectable_value(
-                                    &mut dialog.loader,
-                                    value.to_owned(),
-                                    self.tr(key),
-                                );
-                            }
-                        });
-                        ui.end_row();
-                        if previous_loader != dialog.loader {
-                            dialog.loader_version.clear();
-                            self.loader_versions.clear();
-                            if dialog.loader != "vanilla" && !dialog.game_version.is_empty() {
-                                loader_query =
-                                    Some((dialog.game_version.clone(), dialog.loader.clone()));
-                            }
-                        }
-                        if dialog.loader != "vanilla" {
-                            ui.label(self.tr("create.loader_version"));
-                            let selected = if dialog.loader_version.is_empty() {
-                                self.tr("common.select")
-                            } else {
-                                dialog.loader_version.clone()
-                            };
-                            egui::ComboBox::from_id_salt("loader_version")
-                                .selected_text(selected)
-                                .show_ui(ui, |ui| {
-                                    for version in &self.loader_versions {
-                                        ui.selectable_value(
-                                            &mut dialog.loader_version,
-                                            version.version.clone(),
-                                            format!(
-                                                "{}{}",
-                                                version.version,
-                                                if version.stable {
-                                                    self.tr("create.stable_suffix")
-                                                } else {
-                                                    String::new()
-                                                }
-                                            ),
-                                        );
-                                    }
-                                });
-                            ui.end_row();
-                        }
-                    });
-                ui.separator();
-                ui.horizontal(|ui| {
-                    if ui.button(self.tr("action.cancel")).clicked() {
-                        cancel = true;
-                    }
-                    let valid = !dialog.name.trim().is_empty()
-                        && !dialog.game_version.is_empty()
-                        && (dialog.loader == "vanilla" || !dialog.loader_version.is_empty());
-                    if ui
-                        .add_enabled(valid, egui::Button::new(self.tr("action.create")))
-                        .clicked()
-                    {
-                        submit = true;
-                    }
-                });
-            });
-        if let Some((game_version, loader)) = loader_query {
-            self.loader_versions.clear();
-            self.call(
-                "loader.list",
-                json!({"gameVersion": game_version, "loader": loader}),
-                Value::Null,
-            );
-        }
-        if submit {
-            self.call(
-                "instance.create",
-                json!({
-                    "name": dialog.name.trim(),
-                    "gameVersion": dialog.game_version,
-                    "loader": dialog.loader,
-                    "loaderVersion": if dialog.loader == "vanilla" { Value::Null } else { json!(dialog.loader_version) },
-                    "javaPath": Value::Null,
-                    "minMemoryMb": Value::Null,
-                    "maxMemoryMb": Value::Null,
-                    "jvmArgs": Value::Null,
-                    "gameArgs": [],
-                    "accountId": Value::Null,
-                }),
-                Value::Null,
-            );
-        }
-        if cancel {
-            self.create = None;
-        } else {
-            self.create = Some(dialog);
         }
     }
 
@@ -631,6 +479,41 @@ impl MzApp {
         }
         self.draft_instance = Some(draft);
     }
+}
+
+fn new_instance_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
+    let width = ui.available_width();
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(width, NEW_INSTANCE_BAR_HEIGHT),
+        egui::Sense::click(),
+    );
+    let visuals = ui.style().interact(&response);
+    ui.painter().rect(
+        rect,
+        visuals.corner_radius,
+        visuals.bg_fill,
+        visuals.bg_stroke,
+        egui::StrokeKind::Inside,
+    );
+    let content_rect = rect.shrink(crate::layout::CARD_INNER_MARGIN as f32);
+    ui.allocate_new_ui(
+        egui::UiBuilder::new()
+            .max_rect(content_rect)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        |ui| {
+            let (theme, png) = if ui.visuals().dark_mode {
+                ("dark", &include_bytes!("../../assets/plus-dark.png")[..])
+            } else {
+                ("light", &include_bytes!("../../assets/plus-light.png")[..])
+            };
+            ui.add(
+                egui::Image::from_bytes(format!("bytes://new-instance-plus-{theme}.png"), png)
+                    .fit_to_exact_size(NEW_INSTANCE_ICON_SIZE),
+            );
+            ui.label(label);
+        },
+    );
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 fn instance_icon(ui: &mut egui::Ui, name: &str) {

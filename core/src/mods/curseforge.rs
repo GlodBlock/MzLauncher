@@ -50,9 +50,13 @@ impl ModProviderApi for CurseForge {
     }
 
     async fn search(&self, params: &ModSearchParams) -> CoreResult<Vec<ModProject>> {
+        let class_id = match params.project_type {
+            super::ModProjectType::Mod => "6",
+            super::ModProjectType::Modpack => "4471",
+        };
         let mut request = self.request(reqwest::Method::GET, "/mods/search")?.query(&[
             ("gameId", "432".to_owned()),
-            ("classId", "6".to_owned()),
+            ("classId", class_id.to_owned()),
             ("searchFilter", params.query.clone()),
             ("pageSize", "20".to_owned()),
         ]);
@@ -67,19 +71,45 @@ impl ModProviderApi for CurseForge {
         Ok(response
             .data
             .into_iter()
-            .map(|project| ModProject {
-                provider: ModProvider::CurseForge,
-                project_id: project.id.to_string(),
-                name: project.name,
-                summary: project.summary,
-                author: project
-                    .authors
-                    .first()
-                    .map(|author| author.name.clone())
-                    .unwrap_or_default(),
-                icon_url: project.logo.and_then(|logo| logo.thumbnail_url),
-                page_url: project.links.and_then(|links| links.website_url),
-                downloads: project.download_count,
+            .map(|project| {
+                let mut game_versions = project
+                    .latest_files
+                    .iter()
+                    .flat_map(|file| file.game_versions.iter())
+                    .filter(|version| {
+                        version
+                            .chars()
+                            .next()
+                            .is_some_and(|character| character.is_ascii_digit())
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                game_versions.sort();
+                game_versions.dedup();
+                let mut loaders = project
+                    .latest_files
+                    .iter()
+                    .flat_map(|file| file.game_versions.iter())
+                    .filter_map(|value| super::parse_loader(&value.to_ascii_lowercase()))
+                    .collect::<Vec<_>>();
+                loaders.sort_by_key(|loader| super::loader_name(*loader));
+                loaders.dedup();
+                ModProject {
+                    provider: ModProvider::CurseForge,
+                    project_id: project.id.to_string(),
+                    name: project.name,
+                    summary: project.summary,
+                    author: project
+                        .authors
+                        .first()
+                        .map(|author| author.name.clone())
+                        .unwrap_or_default(),
+                    icon_url: project.logo.and_then(|logo| logo.thumbnail_url),
+                    page_url: project.links.and_then(|links| links.website_url),
+                    downloads: project.download_count,
+                    game_versions,
+                    loaders,
+                }
             })
             .collect())
     }
@@ -108,6 +138,32 @@ impl ModProviderApi for CurseForge {
         .await?;
         into_mod_file(response.data)
     }
+
+    async fn modpack_file(
+        &self,
+        project_id: &str,
+        game_version: Option<&str>,
+        loader: Option<LoaderKind>,
+    ) -> CoreResult<ModFile> {
+        let mut request =
+            self.request(reqwest::Method::GET, &format!("/mods/{project_id}/files"))?;
+        if let Some(version) = game_version {
+            request = request.query(&[("gameVersion", version)]);
+            if let Some(loader) = loader {
+                request = request.query(&[("modLoaderType", loader_type(loader))]);
+            }
+        }
+        let response: DataResponse<Vec<FileResponse>> =
+            super::send_json(request, "curseforge").await?;
+        response
+            .data
+            .into_iter()
+            .map(into_mod_file)
+            .collect::<CoreResult<Vec<_>>>()?
+            .into_iter()
+            .max_by(|left, right| left.published_at.cmp(&right.published_at))
+            .ok_or_else(|| CoreError::NotFound("matching CurseForge modpack version".into()))
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -126,6 +182,8 @@ struct ProjectResponse {
     logo: Option<LogoResponse>,
     links: Option<LinksResponse>,
     download_count: u64,
+    #[serde(default)]
+    latest_files: Vec<FileResponse>,
 }
 
 #[derive(Debug, Deserialize)]

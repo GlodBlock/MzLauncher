@@ -152,6 +152,8 @@ pub struct EndpointSettings {
     pub fabric_meta: String,
     pub modrinth_api: String,
     pub curseforge_api: String,
+    #[serde(default = "default_ftb_api")]
+    pub ftb_api: String,
     pub forge_maven: String,
     pub neoforge_maven: String,
     pub microsoft_authority: String,
@@ -171,6 +173,10 @@ pub struct ModProject {
     pub author: String,
     pub page_url: Option<String>,
     pub downloads: u64,
+    #[serde(default)]
+    pub game_versions: Vec<String>,
+    #[serde(default)]
+    pub loaders: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -224,4 +230,8 @@ pub struct ModpackAnalysis {
     pub mod_count: usize,
     pub override_prefixes: Vec<String>,
     pub warnings: Vec<String>,
+}
+
+fn default_ftb_api() -> String {
+    "https://api.feed-the-beast.com/v1/modpacks".into()
 }

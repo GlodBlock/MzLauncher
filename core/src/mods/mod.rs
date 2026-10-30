@@ -28,6 +28,23 @@ use crate::store::Store;
 pub use curseforge::CurseForge;
 pub use modrinth::Modrinth;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModProjectType {
+    #[default]
+    Mod,
+    Modpack,
+}
+
+impl ModProjectType {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Mod => "mod",
+            Self::Modpack => "modpack",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModProject {
@@ -39,6 +56,8 @@ pub struct ModProject {
     pub icon_url: Option<String>,
     pub page_url: Option<String>,
     pub downloads: u64,
+    pub game_versions: Vec<String>,
+    pub loaders: Vec<LoaderKind>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -48,6 +67,8 @@ pub struct ModSearchParams {
     pub query: String,
     pub game_version: Option<String>,
     pub loader: Option<LoaderKind>,
+    #[serde(default)]
+    pub project_type: ModProjectType,
 }
 
 #[async_trait]
@@ -56,6 +77,12 @@ pub trait ModProviderApi: Send + Sync {
     async fn search(&self, params: &ModSearchParams) -> CoreResult<Vec<ModProject>>;
     async fn files(&self, project_id: &str, instance: &Instance) -> CoreResult<Vec<ModFile>>;
     async fn file(&self, project_id: &str, file_id: &str) -> CoreResult<ModFile>;
+    async fn modpack_file(
+        &self,
+        project_id: &str,
+        game_version: Option<&str>,
+        loader: Option<LoaderKind>,
+    ) -> CoreResult<ModFile>;
 }
 
 #[derive(Clone)]
@@ -90,6 +117,31 @@ impl ModService {
             ));
         }
         self.provider(params.provider)?.search(&params).await
+    }
+
+    pub async fn search_modpacks(
+        &self,
+        mut params: ModSearchParams,
+    ) -> CoreResult<Vec<ModProject>> {
+        params.project_type = ModProjectType::Modpack;
+        if params.query.chars().count() > 200 {
+            return Err(CoreError::InvalidInput(
+                "Modpack search query is too long".into(),
+            ));
+        }
+        self.provider(params.provider)?.search(&params).await
+    }
+
+    pub async fn modpack_file(
+        &self,
+        provider: ModProvider,
+        project_id: &str,
+        game_version: Option<&str>,
+        loader: Option<LoaderKind>,
+    ) -> CoreResult<ModFile> {
+        self.provider(provider)?
+            .modpack_file(project_id, game_version, loader)
+            .await
     }
 
     pub async fn files(
@@ -512,6 +564,7 @@ fn provider_name(provider: ModProvider) -> &'static str {
     match provider {
         ModProvider::Modrinth => "modrinth",
         ModProvider::CurseForge => "curseforge",
+        ModProvider::Ftb => "ftb",
         ModProvider::Manual => "manual",
         ModProvider::Modpack => "modpack",
     }

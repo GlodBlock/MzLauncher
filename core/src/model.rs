@@ -229,6 +229,7 @@ pub enum GameStatus {
 pub enum ModProvider {
     Modrinth,
     CurseForge,
+    Ftb,
     Manual,
     Modpack,
 }

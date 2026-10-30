@@ -18,9 +18,9 @@ use crate::mods::ModService;
 use crate::paths::{safe_relative_path, AppPaths};
 use crate::store::Store;
 
-const MAX_ENTRIES: usize = 50_000;
-const MAX_ENTRY_SIZE: u64 = 256 * 1024 * 1024;
-const MAX_TOTAL_SIZE: u64 = 4 * 1024 * 1024 * 1024;
+pub(crate) const MAX_ENTRIES: usize = 50_000;
+pub(crate) const MAX_ENTRY_SIZE: u64 = 256 * 1024 * 1024;
+pub(crate) const MAX_TOTAL_SIZE: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_COMPRESSION_RATIO: u64 = 200;
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -28,6 +28,7 @@ const MAX_COMPRESSION_RATIO: u64 = 200;
 pub enum ModpackFormat {
     CurseForge,
     Modrinth,
+    Ftb,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -57,6 +58,7 @@ pub struct PackFile {
     pub url: Option<String>,
     pub size: Option<u64>,
     pub sha1: Option<String>,
+    pub sha256: Option<String>,
     pub required: bool,
 }
 
@@ -67,6 +69,7 @@ pub struct ModpackService {
     downloader: Downloader,
     instances: InstanceService,
     mods: ModService,
+    browser: crate::modpack_browser::ModpackBrowserService,
 }
 
 use std::sync::Arc;
@@ -140,14 +143,22 @@ impl ModpackService {
         downloader: Downloader,
         instances: InstanceService,
         mods: ModService,
-    ) -> Self {
-        Self {
+        ftb_base: String,
+    ) -> CoreResult<Self> {
+        let browser = crate::modpack_browser::ModpackBrowserService::new(
+            paths.clone(),
+            downloader.clone(),
+            mods.clone(),
+            ftb_base,
+        )?;
+        Ok(Self {
             paths,
             store,
             downloader,
             instances,
             mods,
-        }
+            browser,
+        })
     }
 
     pub async fn analyze(&self, path: &Path) -> CoreResult<ModpackAnalysis> {
@@ -157,6 +168,13 @@ impl ModpackService {
             .map_err(|error| CoreError::Internal(error.to_string()))?
     }
 
+    pub async fn search(
+        &self,
+        params: crate::mods::ModSearchParams,
+    ) -> CoreResult<Vec<crate::mods::ModProject>> {
+        self.browser.search(params).await
+    }
+
     pub async fn import(
         &self,
         path: &Path,
@@ -164,6 +182,35 @@ impl ModpackService {
         context: &JobContext,
     ) -> CoreResult<Value> {
         let analysis = self.analyze(path).await?;
+        self.import_analysis(analysis, Some(path.to_path_buf()), name, context)
+            .await
+    }
+
+    pub async fn import_remote(
+        &self,
+        params: crate::modpack_browser::ModpackDownloadParams,
+        context: &JobContext,
+    ) -> CoreResult<Value> {
+        let name = params.name.clone();
+        match self.browser.fetch(&params, context).await? {
+            crate::modpack_browser::RemoteModpack::Archive { path, name: source } => {
+                let analysis = self.analyze(&path).await?;
+                self.import_analysis(analysis, Some(path), name.or(Some(source)), context)
+                    .await
+            }
+            crate::modpack_browser::RemoteModpack::Prepared(analysis) => {
+                self.import_analysis(analysis, None, name, context).await
+            }
+        }
+    }
+
+    async fn import_analysis(
+        &self,
+        analysis: ModpackAnalysis,
+        archive: Option<std::path::PathBuf>,
+        name: Option<String>,
+        context: &JobContext,
+    ) -> CoreResult<Value> {
         let instance = self.instances.create(CreateInstanceParams {
             name: name.unwrap_or_else(|| analysis.name.clone()),
             description: Some(format!("Imported {:?} modpack", analysis.format)),
@@ -206,12 +253,13 @@ impl ModpackService {
                 }
             });
         }
-        let archive = path.to_path_buf();
-        let destination = self.paths.instance(instance.id);
-        let prefixes = analysis.override_prefixes.clone();
-        tokio::task::spawn_blocking(move || apply_overrides(&archive, &destination, &prefixes))
-            .await
-            .map_err(|error| CoreError::Internal(error.to_string()))??;
+        if let Some(archive) = archive {
+            let destination = self.paths.instance(instance.id);
+            let prefixes = analysis.override_prefixes.clone();
+            tokio::task::spawn_blocking(move || apply_overrides(&archive, &destination, &prefixes))
+                .await
+                .map_err(|error| CoreError::Internal(error.to_string()))??;
+        }
         let complete = entries.iter().all(|entry| {
             matches!(
                 entry.status,
@@ -269,7 +317,7 @@ impl ModpackService {
                 url: file.url.clone(),
                 size: file.size,
                 sha1: file.sha1.clone(),
-                sha256: None,
+                sha256: file.sha256.clone(),
                 game_versions: vec![instance.game_version.clone()],
                 loaders: vec![instance.loader],
                 channel: ReleaseChannel::Release,
@@ -302,7 +350,7 @@ impl ModpackService {
                         destination,
                         size: file.size,
                         sha1: file.sha1.clone(),
-                        sha256: None,
+                        sha256: file.sha256.clone(),
                         provider: "modpack".into(),
                     },
                     Some(context),
@@ -396,6 +444,7 @@ fn analyze_modrinth(
             url: file.downloads.first().cloned(),
             size: Some(file.file_size),
             sha1: file.hashes.sha1,
+            sha256: None,
             required: true,
         });
     }
@@ -441,6 +490,7 @@ fn analyze_curseforge(
             url: None,
             size: None,
             sha1: None,
+            sha256: None,
             required: file.required,
         })
         .collect::<Vec<_>>();

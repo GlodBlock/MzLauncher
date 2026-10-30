@@ -77,6 +77,105 @@ fn analyzes_modrinth_pack_and_rejects_unsafe_paths() {
     assert!(!temp.path().join("escape.jar").exists());
 }
 
+#[test]
+fn searches_remote_modpacks_and_validates_installation() {
+    use std::io::Read;
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        for _ in 0..2 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 4096];
+            let read = stream.read(&mut request).unwrap();
+            let request = String::from_utf8_lossy(&request[..read]);
+            let body = if request.starts_with("GET /v1/modpacks/public/modpack/popular/plays/20 ") {
+                json!({"status":"success","packs":[125]})
+            } else if request.starts_with("GET /v1/modpacks/public/modpack/125 ") {
+                json!({
+                    "id":125,
+                    "name":"FTB Evolution",
+                    "synopsis":"Explore a new world.",
+                    "authors":[{"name":"FTB Team"}],
+                    "art":[{"type":"square","url":"https://cdn.example.com/pack.png"}],
+                    "installs":1000,
+                    "versions":[{
+                        "id":500,
+                        "updated":10,
+                        "private":false,
+                        "targets":[
+                            {"type":"game","name":"minecraft","version":"1.21.1"},
+                            {"type":"modloader","name":"neoforge","version":"21.1.72"}
+                        ]
+                    }]
+                })
+            } else {
+                panic!("unexpected request: {request}");
+            };
+            let body = body.to_string();
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        }
+    });
+
+    let temp = tempfile::tempdir().unwrap();
+    let data = temp.path().join("data");
+    let paths = mzlauncher_core::paths::AppPaths::new(data.clone());
+    paths.initialize().unwrap();
+    let mut config = mzlauncher_core::config::AppConfig::default();
+    config.endpoints.ftb_api = format!("http://{address}/v1/modpacks");
+    std::fs::write(
+        paths.config_file(),
+        serde_json::to_vec_pretty(&config).unwrap(),
+    )
+    .unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mzlauncher-core"))
+        .arg("--data-dir")
+        .arg(data)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut client = Client {
+        stdin: child.stdin.take().unwrap(),
+        stdout: BufReader::new(child.stdout.take().unwrap()),
+    };
+    let handshake = client.call(
+        "hello",
+        "system.handshake",
+        json!({"clientVersion": "test", "minProtocol": 2, "maxProtocol": 2}),
+    );
+    assert!(handshake["result"]["capabilities"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("modpack_browser")));
+    let search = client.call(
+        "search",
+        "modpack.search",
+        json!({"provider":"ftb","query":"","gameVersion":null,"loader":null}),
+    );
+    assert!(search["error"].is_null(), "search failed: {search}");
+    assert_eq!(search["result"][0]["name"], "FTB Evolution");
+    assert_eq!(search["result"][0]["gameVersions"], json!(["1.21.1"]));
+    assert_eq!(search["result"][0]["loaders"], json!(["neo_forge"]));
+    let invalid = client.call(
+        "invalid",
+        "modpack.install",
+        json!({"provider":"ftb","projectId":"../125","projectName":"FTB Evolution"}),
+    );
+    assert_eq!(invalid["error"]["code"], "invalid_input");
+    client.call("stop", "system.shutdown", Value::Null);
+    drop(client);
+    assert!(child.wait().unwrap().success());
+    server.join().unwrap();
+}
+
 fn write_zip(path: &std::path::Path, entries: &[(&str, &[u8])]) {
     let file = std::fs::File::create(path).unwrap();
     let mut writer = zip::ZipWriter::new(file);

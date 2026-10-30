@@ -31,13 +31,34 @@ pub enum DetailTab {
     Launch,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum NewInstanceTab {
+    CurseForge,
+    Ftb,
+    Modrinth,
+    Custom,
+}
+
+impl NewInstanceTab {
+    pub fn provider(self) -> Option<&'static str> {
+        match self {
+            Self::CurseForge => Some("curse_forge"),
+            Self::Ftb => Some("ftb"),
+            Self::Modrinth => Some("modrinth"),
+            Self::Custom => None,
+        }
+    }
+}
+
 #[derive(Clone)]
-pub struct CreateDialog {
+pub struct NewInstanceState {
     pub name: String,
     pub game_version: String,
     pub loader: String,
     pub loader_version: String,
     pub include_snapshots: bool,
+    pub tab: NewInstanceTab,
+    pub creating: bool,
 }
 
 pub struct ModBrowser {
@@ -50,11 +71,40 @@ pub struct ModBrowser {
     pub expanded: Option<String>,
 }
 
+pub struct ModpackBrowser {
+    pub provider: String,
+    pub query: String,
+    pub game_version: String,
+    pub loader: String,
+    pub results: Vec<ModProject>,
+    pub searching: bool,
+    pub generation: u64,
+    pub requested: std::collections::HashSet<String>,
+    pub install_jobs: HashMap<String, String>,
+}
+
+impl ModpackBrowser {
+    pub fn new(provider: &str) -> Self {
+        Self {
+            provider: provider.into(),
+            query: String::new(),
+            game_version: String::new(),
+            loader: String::new(),
+            results: Vec::new(),
+            searching: false,
+            generation: 0,
+            requested: std::collections::HashSet::new(),
+            install_jobs: HashMap::new(),
+        }
+    }
+}
+
 pub struct ModpackWizard {
     pub path: String,
     pub name: String,
     pub analysis: Option<ModpackAnalysis>,
     pub analyzing: bool,
+    pub importing: bool,
 }
 
 pub struct Pending {
@@ -85,7 +135,7 @@ pub struct MzApp {
     pub pending: HashMap<String, Pending>,
     pub instance_search: String,
     pub selected_instance: Option<String>,
-    pub create: Option<CreateDialog>,
+    pub create: Option<NewInstanceState>,
     pub versions: Vec<VersionSummary>,
     pub loader_versions: Vec<LoaderVersion>,
     pub login: Option<LoginSession>,
@@ -98,6 +148,7 @@ pub struct MzApp {
     pub core_log_dir: Option<String>,
     pub confirm_delete: Option<String>,
     pub browser: ModBrowser,
+    pub modpack_browser: ModpackBrowser,
     pub modpack: ModpackWizard,
     pub draft_instance: Option<Instance>,
 }
@@ -152,11 +203,13 @@ impl MzApp {
                 files: HashMap::new(),
                 expanded: None,
             },
+            modpack_browser: ModpackBrowser::new("curse_forge"),
             modpack: ModpackWizard {
                 path: String::new(),
                 name: String::new(),
                 analysis: None,
                 analyzing: false,
+                importing: false,
             },
             draft_instance: None,
         };
@@ -299,6 +352,13 @@ impl MzApp {
         }
     }
 
+    fn modpack_request_matches(&self, pending: &Pending) -> bool {
+        pending.context.get("provider").and_then(Value::as_str)
+            == Some(self.modpack_browser.provider.as_str())
+            && pending.context.get("generation").and_then(Value::as_u64)
+                == Some(self.modpack_browser.generation)
+    }
+
     fn handle_error(&mut self, pending: &Pending, error: &Value) {
         let message = error
             .get("message")
@@ -312,7 +372,23 @@ impl MzApp {
                     Some(self.trf("error.protocol_incompatible", &[("message", &message)]));
             }
             "mod.search" => self.browser.searching = false,
+            "modpack.search" => {
+                if self.modpack_request_matches(pending) {
+                    self.modpack_browser.searching = false;
+                }
+            }
             "modpack.analyze" => self.modpack.analyzing = false,
+            "modpack.import" => self.modpack.importing = false,
+            "modpack.install" => {
+                if let Some(project) = pending.context.get("projectId").and_then(Value::as_str) {
+                    self.modpack_browser.requested.remove(project);
+                }
+            }
+            "instance.create" => {
+                if let Some(create) = &mut self.create {
+                    create.creating = false;
+                }
+            }
             "account.skin" => {
                 if let Some(id) = pending.context.get("id").and_then(Value::as_str) {
                     self.skins.fail(id);
@@ -335,6 +411,39 @@ impl MzApp {
                 if let Ok(job) =
                     serde_json::from_value::<Job>(data.get("job").cloned().unwrap_or(Value::Null))
                 {
+                    let terminal = matches!(
+                        job.status.as_str(),
+                        "succeeded" | "failed" | "cancelled" | "interrupted"
+                    );
+                    if terminal {
+                        if let Some(project) = self.modpack_browser.install_jobs.remove(&job.id) {
+                            self.modpack_browser.requested.remove(&project);
+                        }
+                        if job.kind == "import" {
+                            self.modpack.importing = false;
+                            if job.status == "succeeded" {
+                                self.selected_instance = job
+                                    .result
+                                    .as_ref()
+                                    .and_then(|result| result.get("instanceId"))
+                                    .and_then(Value::as_str)
+                                    .map(str::to_owned);
+                                self.modpack.analysis = None;
+                                self.create = None;
+                            } else if job.status == "failed" {
+                                let message = job
+                                    .error
+                                    .as_ref()
+                                    .map(|error| error.message.as_str())
+                                    .unwrap_or("unknown error");
+                                self.notice =
+                                    Some(self.trf("notice.import_failed", &[("message", message)]));
+                            }
+                        }
+                        if matches!(job.kind.as_str(), "import" | "install") {
+                            self.refresh_instances();
+                        }
+                    }
                     self.merge_job(job);
                 }
             }
@@ -436,17 +545,77 @@ impl MzApp {
                     self.settings_draft = Some(settings);
                 }
             }
-            "version.list" => self.versions = parse_list(result),
-            "loader.list" => self.loader_versions = parse_list(result),
-            "instance.create" => {
-                if let Ok(instance) = serde_json::from_value::<Instance>(result) {
-                    self.notice =
-                        Some(self.trf("notice.instance_created", &[("name", &instance.name)]));
-                    self.selected_instance = Some(instance.id);
-                    self.create = None;
-                    self.refresh_instances();
+            "version.list" => {
+                let current = self.create.as_ref().map(|create| create.include_snapshots);
+                let requested = pending
+                    .context
+                    .get("includeSnapshots")
+                    .and_then(Value::as_bool);
+                if requested.is_none() || requested == current {
+                    self.versions = parse_list(result);
+                    if let Some(create) = &mut self.create {
+                        if create.game_version.is_empty() {
+                            create.game_version = self
+                                .versions
+                                .iter()
+                                .find(|version| version.release_type == "release")
+                                .or_else(|| self.versions.first())
+                                .map(|version| version.id.clone())
+                                .unwrap_or_default();
+                        }
+                    }
                 }
             }
+            "loader.list" => {
+                let matches = self.create.as_ref().is_none_or(|create| {
+                    pending.context.get("gameVersion").and_then(Value::as_str)
+                        == Some(create.game_version.as_str())
+                        && pending.context.get("loader").and_then(Value::as_str)
+                            == Some(create.loader.as_str())
+                });
+                if matches {
+                    self.loader_versions = parse_list(result);
+                    if let Some(create) = &mut self.create {
+                        if create.loader != "vanilla" && create.loader_version.is_empty() {
+                            create.loader_version = self
+                                .loader_versions
+                                .iter()
+                                .find(|version| version.stable)
+                                .or_else(|| self.loader_versions.first())
+                                .map(|version| version.version.clone())
+                                .unwrap_or_default();
+                        }
+                    }
+                }
+            }
+            "instance.create" => match serde_json::from_value::<Instance>(result) {
+                Ok(instance) => {
+                    self.notice =
+                        Some(self.trf("notice.instance_created", &[("name", &instance.name)]));
+                    let install = pending
+                        .context
+                        .get("installAfterCreate")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
+                    self.create = None;
+                    if install {
+                        self.selected_instance = None;
+                        self.call(
+                            "instance.install",
+                            json!({"id": instance.id}),
+                            json!({"instanceId": instance.id}),
+                        );
+                    } else {
+                        self.selected_instance = Some(instance.id);
+                    }
+                    self.refresh_instances();
+                }
+                Err(_) => {
+                    if let Some(create) = &mut self.create {
+                        create.creating = false;
+                    }
+                }
+            },
             "instance.install" | "instance.repair" | "mod.install" | "mod.update"
             | "modpack.import" => {
                 if let Ok(job) = serde_json::from_value::<Job>(result) {
@@ -533,9 +702,39 @@ impl MzApp {
                     self.refresh_mods(id);
                 }
             }
+            "modpack.search" => {
+                if self.modpack_request_matches(pending) {
+                    self.modpack_browser.results = parse_list(result);
+                    self.modpack_browser.searching = false;
+                }
+            }
+            "modpack.install" => {
+                if let Ok(job) = serde_json::from_value::<Job>(result) {
+                    if let Some(project) = pending.context.get("projectId").and_then(Value::as_str)
+                    {
+                        self.modpack_browser
+                            .install_jobs
+                            .insert(job.id.clone(), project.to_owned());
+                    }
+                    self.merge_job(job);
+                } else if let Some(project) =
+                    pending.context.get("projectId").and_then(Value::as_str)
+                {
+                    self.modpack_browser.requested.remove(project);
+                }
+                self.notice = Some(self.tr("notice.job_submitted"));
+            }
             "modpack.analyze" => {
                 self.modpack.analyzing = false;
                 self.modpack.analysis = serde_json::from_value(result).ok();
+                if self.modpack.name.is_empty() {
+                    self.modpack.name = self
+                        .modpack
+                        .analysis
+                        .as_ref()
+                        .map(|analysis| analysis.name.clone())
+                        .unwrap_or_default();
+                }
             }
             _ => {}
         }

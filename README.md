@@ -7,7 +7,7 @@ MzLauncher is a Minecraft: Java Edition launcher with a core / gui split archite
 - Isolated instances: game versions, loaders, mods, configs and saves never leak between instances
 - Game and loaders: Vanilla plus Fabric, Forge and NeoForge installation with version matching checks
 - Mod management: search, install, update and dependency resolution from Modrinth and CurseForge
-- Modpack import: local CurseForge and Modrinth modpacks, with path safety checks before writing to disk
+- Modpack installation: browse CurseForge, FTB and Modrinth packs, or import local CurseForge and Modrinth archives with path safety checks
 - Microsoft account login: official OAuth flow, credentials stored in the OS secure store, passwords never touched
 - Download management: concurrency limits, resume, checksum verification, retries and recovery after interruption
 - Game launching: process management, live log capture and redaction of sensitive data

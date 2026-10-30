@@ -44,7 +44,9 @@ pub fn capabilities() -> Vec<String> {
         "neoforge".into(),
         "modrinth".into(),
         "curseforge".into(),
+        "ftb".into(),
         "modpack_import".into(),
+        "modpack_browser".into(),
     ];
     if DEBUG_AUTH {
         capabilities.push("debug_auth".into());

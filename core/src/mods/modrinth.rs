@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 use crate::error::{CoreError, CoreResult};
-use crate::model::{Instance, ModDependency, ModFile, ModProvider, ReleaseChannel};
+use crate::model::{Instance, LoaderKind, ModDependency, ModFile, ModProvider, ReleaseChannel};
 
 use super::{ModProject, ModProviderApi, ModSearchParams};
 
@@ -28,7 +28,8 @@ impl ModProviderApi for Modrinth {
     }
 
     async fn search(&self, params: &ModSearchParams) -> CoreResult<Vec<ModProject>> {
-        let mut facets = vec![vec!["project_type:mod".to_owned()]];
+        let project_type = params.project_type.as_str();
+        let mut facets = vec![vec![format!("project_type:{project_type}")]];
         if let Some(version) = &params.game_version {
             facets.push(vec![format!(
                 "versions:{}",
@@ -57,8 +58,14 @@ impl ModProviderApi for Modrinth {
                 summary: hit.description,
                 author: hit.author,
                 icon_url: hit.icon_url,
-                page_url: Some(format!("https://modrinth.com/mod/{}", hit.slug)),
+                page_url: Some(format!("https://modrinth.com/{project_type}/{}", hit.slug)),
                 downloads: hit.downloads,
+                game_versions: hit.versions,
+                loaders: hit
+                    .categories
+                    .iter()
+                    .filter_map(|loader| super::parse_loader(loader))
+                    .collect(),
             })
             .collect())
     }
@@ -94,6 +101,34 @@ impl ModProviderApi for Modrinth {
             .await?,
         )
     }
+
+    async fn modpack_file(
+        &self,
+        project_id: &str,
+        game_version: Option<&str>,
+        loader: Option<LoaderKind>,
+    ) -> CoreResult<ModFile> {
+        let mut request = self
+            .client
+            .get(format!("{}/project/{project_id}/version", self.base));
+        if let Some(version) = game_version {
+            request = request.query(&[("game_versions", serde_json::to_string(&vec![version])?)]);
+        }
+        if let Some(loader) = loader {
+            request = request.query(&[(
+                "loaders",
+                serde_json::to_string(&vec![super::loader_name(loader)])?,
+            )]);
+        }
+        let versions: Vec<VersionResponse> = super::send_json(request, "modrinth").await?;
+        versions
+            .into_iter()
+            .map(into_pack_file)
+            .collect::<CoreResult<Vec<_>>>()?
+            .into_iter()
+            .max_by(|left, right| left.published_at.cmp(&right.published_at))
+            .ok_or_else(|| CoreError::NotFound("matching Modrinth modpack version".into()))
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,6 +145,10 @@ struct SearchHit {
     icon_url: Option<String>,
     slug: String,
     downloads: u64,
+    #[serde(default)]
+    versions: Vec<String>,
+    #[serde(default)]
+    categories: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -148,10 +187,19 @@ struct DependencyResponse {
 }
 
 fn into_mod_file(version: VersionResponse) -> CoreResult<ModFile> {
+    into_mod_file_kind(version, false)
+}
+
+fn into_pack_file(version: VersionResponse) -> CoreResult<ModFile> {
+    into_mod_file_kind(version, true)
+}
+
+fn into_mod_file_kind(version: VersionResponse, modpack: bool) -> CoreResult<ModFile> {
     let file = version
         .files
         .iter()
-        .find(|file| file.primary)
+        .find(|file| modpack && file.filename.ends_with(".mrpack"))
+        .or_else(|| version.files.iter().find(|file| file.primary))
         .or(version.files.first())
         .ok_or_else(|| CoreError::Upstream {
             provider: "modrinth".into(),

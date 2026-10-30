@@ -10,6 +10,7 @@ pub mod launch;
 pub mod loader;
 pub mod model;
 pub mod modpack;
+pub mod modpack_browser;
 pub mod mods;
 pub mod paths;
 pub mod protocol;

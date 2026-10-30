@@ -88,6 +88,8 @@ pub struct EndpointConfig {
     pub fabric_meta: String,
     pub modrinth_api: String,
     pub curseforge_api: String,
+    #[serde(default = "default_ftb_api")]
+    pub ftb_api: String,
     #[serde(default = "default_forge_maven")]
     pub forge_maven: String,
     #[serde(default = "default_neoforge_maven")]
@@ -107,6 +109,7 @@ impl Default for EndpointConfig {
             fabric_meta: "https://meta.fabricmc.net".into(),
             modrinth_api: "https://api.modrinth.com/v2".into(),
             curseforge_api: "https://api.curseforge.com/v1".into(),
+            ftb_api: default_ftb_api(),
             forge_maven: default_forge_maven(),
             neoforge_maven: default_neoforge_maven(),
             microsoft_authority: "https://login.microsoftonline.com/consumers/oauth2/v2.0".into(),
@@ -116,6 +119,10 @@ impl Default for EndpointConfig {
             minecraft_profile: "https://api.minecraftservices.com/minecraft/profile".into(),
         }
     }
+}
+
+fn default_ftb_api() -> String {
+    "https://api.feed-the-beast.com/v1/modpacks".into()
 }
 
 fn default_forge_maven() -> String {
@@ -252,6 +259,7 @@ impl AppConfig {
             &self.endpoints.fabric_meta,
             &self.endpoints.modrinth_api,
             &self.endpoints.curseforge_api,
+            &self.endpoints.ftb_api,
             &self.endpoints.forge_maven,
             &self.endpoints.neoforge_maven,
             &self.endpoints.microsoft_authority,

@@ -86,7 +86,8 @@ impl Server {
             downloader,
             instances.clone(),
             mods.clone(),
-        );
+            config.get().endpoints.ftb_api,
+        )?;
         Ok(Self {
             paths,
             config,
@@ -522,6 +523,24 @@ impl Server {
                     move |context| async move {
                         service.import(&path, params.name, &context).await
                     },
+                )?;
+                Ok(serde_json::to_value(job)?)
+            }
+            "modpack.search" => {
+                let params: ModSearchParams = parse_params(&request.params)?;
+                Ok(serde_json::to_value(self.modpacks.search(params).await?)?)
+            }
+            "modpack.install" => {
+                let params: crate::modpack_browser::ModpackDownloadParams =
+                    parse_params(&request.params)?;
+                crate::modpack_browser::validate_remote_id(&params.project_id)?;
+                let service = self.modpacks.clone();
+                let idempotency_key = params.idempotency_key.clone();
+                let job = self.jobs.submit(
+                    JobKind::Import,
+                    None,
+                    idempotency_key,
+                    move |context| async move { service.import_remote(params, &context).await },
                 )?;
                 Ok(serde_json::to_value(job)?)
             }

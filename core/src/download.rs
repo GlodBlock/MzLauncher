@@ -83,6 +83,10 @@ impl Downloader {
         })
     }
 
+    pub fn max_concurrent(&self) -> usize {
+        self.config.max_concurrent
+    }
+
     pub async fn fetch_json<T: DeserializeOwned>(
         &self,
         url: &str,
@@ -641,6 +645,16 @@ fn config_validation(config: &DownloadConfig) -> CoreResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uses_configured_max_concurrent() {
+        let config = DownloadConfig {
+            max_concurrent: 7,
+            ..DownloadConfig::default()
+        };
+        let downloader = Downloader::new(config).unwrap();
+        assert_eq!(downloader.max_concurrent(), 7);
+    }
 
     #[tokio::test]
     async fn verifies_existing_content() {

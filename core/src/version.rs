@@ -448,9 +448,10 @@ impl VersionService {
             Some(total),
             pending.lock().unwrap().clone(),
         ))?;
+        let max_concurrent = self.downloader.max_concurrent();
         let downloader = self.downloader.clone();
         stream::iter(specs.into_iter().map(Ok::<_, CoreError>))
-            .try_for_each_concurrent(4, |spec| {
+            .try_for_each_concurrent(max_concurrent, |spec| {
                 let downloader = downloader.clone();
                 let completed = completed.clone();
                 let pending = pending.clone();

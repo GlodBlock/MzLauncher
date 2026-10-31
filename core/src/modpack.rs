@@ -377,7 +377,7 @@ impl ModpackService {
                 Ok::<_, CoreError>((file, result))
             }
         }))
-        .buffer_unordered(4);
+        .buffer_unordered(self.downloader.max_concurrent());
         while let Some(result) = downloads.next().await {
             let (file, result) = result?;
             let result = result?;

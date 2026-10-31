@@ -158,7 +158,11 @@ impl LoaderService {
         java_requirement: &JavaRequirement,
         context: &JobContext,
     ) -> CoreResult<String> {
-        let loader_version = required_loader_version(instance)?;
+        let loader_version = installer_version(
+            instance.loader,
+            &instance.game_version,
+            required_loader_version(instance)?,
+        );
         let base = self.maven_base(instance.loader);
         let (artifact, installer_arguments) = match instance.loader {
             LoaderKind::Forge => (
@@ -272,6 +276,15 @@ impl LoaderService {
     }
 }
 
+fn installer_version(loader: LoaderKind, game_version: &str, version: &str) -> String {
+    let forge_prefix = format!("{game_version}-");
+    if loader == LoaderKind::Forge && !version.starts_with(&forge_prefix) {
+        format!("{game_version}-{version}")
+    } else {
+        version.to_owned()
+    }
+}
+
 fn required_loader_version(instance: &Instance) -> CoreResult<&str> {
     instance
         .loader_version
@@ -378,6 +391,22 @@ mod tests {
     fn reads_maven_version_list() {
         let xml = "<metadata><versioning><versions><version>1.21.1-52.0.0</version><version>1.21.1-52.0.1</version></versions></versioning></metadata>";
         assert_eq!(maven_versions(xml).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn forge_installer_version_includes_the_game_version() {
+        assert_eq!(
+            installer_version(LoaderKind::Forge, "1.12.2", "14.23.5.2860"),
+            "1.12.2-14.23.5.2860"
+        );
+        assert_eq!(
+            installer_version(LoaderKind::Forge, "1.12.2", "1.12.2-14.23.5.2860"),
+            "1.12.2-14.23.5.2860"
+        );
+        assert_eq!(
+            installer_version(LoaderKind::NeoForge, "1.21.1", "21.1.265"),
+            "21.1.265"
+        );
     }
 
     #[test]

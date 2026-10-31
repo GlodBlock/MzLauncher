@@ -105,6 +105,14 @@ impl ModpackBrowser {
     }
 }
 
+#[derive(Clone)]
+pub struct InstallingModpack {
+    pub project: ModProject,
+    pub game_version: String,
+    pub loader: String,
+    pub job_id: Option<String>,
+}
+
 pub struct ModpackWizard {
     pub path: String,
     pub name: String,
@@ -134,6 +142,7 @@ pub struct MzApp {
     pub accounts: Vec<Account>,
     pub instances: Vec<Instance>,
     pub jobs: Vec<Job>,
+    pub installing_modpacks: Vec<InstallingModpack>,
     pub games: HashMap<String, String>,
     pub exit_codes: HashMap<String, i32>,
     pub settings: Option<AppSettings>,
@@ -182,6 +191,7 @@ impl MzApp {
             accounts: Vec::new(),
             instances: Vec::new(),
             jobs: Vec::new(),
+            installing_modpacks: Vec::new(),
             games: HashMap::new(),
             exit_codes: HashMap::new(),
             settings: None,
@@ -410,6 +420,8 @@ impl MzApp {
             "modpack.install" => {
                 if let Some(project) = pending.context.get("projectId").and_then(Value::as_str) {
                     self.modpack_browser.requested.remove(project);
+                    self.installing_modpacks
+                        .retain(|install| install.project.project_id != project);
                 }
             }
             "instance.create" => {
@@ -444,11 +456,20 @@ impl MzApp {
                 if let Ok(job) =
                     serde_json::from_value::<Job>(data.get("job").cloned().unwrap_or(Value::Null))
                 {
+                    let previous_instance_id = self
+                        .jobs
+                        .iter()
+                        .find(|existing| existing.id == job.id)
+                        .and_then(Job::instance_id)
+                        .map(str::to_owned);
+                    let instance_id = job.instance_id().map(str::to_owned);
                     let terminal = matches!(
                         job.status.as_str(),
                         "succeeded" | "failed" | "cancelled" | "interrupted"
                     );
                     if terminal {
+                        self.installing_modpacks
+                            .retain(|install| install.job_id.as_deref() != Some(job.id.as_str()));
                         if let Some(project) = self.modpack_browser.install_jobs.remove(&job.id) {
                             self.modpack_browser.requested.remove(&project);
                         }
@@ -476,6 +497,11 @@ impl MzApp {
                         if matches!(job.kind.as_str(), "import" | "install") {
                             self.refresh_instances();
                         }
+                    } else if job.kind == "import"
+                        && instance_id.is_some()
+                        && previous_instance_id != instance_id
+                    {
+                        self.refresh_instances();
                     }
                     self.merge_job(job);
                 }
@@ -758,17 +784,35 @@ impl MzApp {
             }
             "modpack.install" => {
                 if let Ok(job) = serde_json::from_value::<Job>(result) {
+                    let terminal = matches!(
+                        job.status.as_str(),
+                        "succeeded" | "failed" | "cancelled" | "interrupted"
+                    );
                     if let Some(project) = pending.context.get("projectId").and_then(Value::as_str)
                     {
                         self.modpack_browser
                             .install_jobs
                             .insert(job.id.clone(), project.to_owned());
+                        if let Some(install) = self.installing_modpacks.iter_mut().find(|install| {
+                            install.project.project_id == project && install.job_id.is_none()
+                        }) {
+                            install.job_id = Some(job.id.clone());
+                        }
+                        if terminal {
+                            self.modpack_browser.requested.remove(project);
+                            self.modpack_browser.install_jobs.remove(&job.id);
+                            self.installing_modpacks.retain(|install| {
+                                install.job_id.as_deref() != Some(job.id.as_str())
+                            });
+                        }
                     }
                     self.merge_job(job);
                 } else if let Some(project) =
                     pending.context.get("projectId").and_then(Value::as_str)
                 {
                     self.modpack_browser.requested.remove(project);
+                    self.installing_modpacks
+                        .retain(|install| install.project.project_id != project);
                 }
                 self.notice = Some(self.tr("notice.job_submitted"));
             }

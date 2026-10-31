@@ -1,9 +1,9 @@
 use eframe::egui;
 use serde_json::{json, Value};
 
-use crate::app::{DetailTab, MzApp, NewInstanceState, NewInstanceTab, Page};
-use crate::model::Instance;
-use crate::pages::home::{loader_key, status_key};
+use crate::app::{DetailTab, InstallingModpack, MzApp, NewInstanceState, NewInstanceTab, Page};
+use crate::model::{Instance, Job};
+use crate::pages::home::{job_status_key, loader_key, status_key};
 
 const INSTANCE_ICON_SIZE: egui::Vec2 = egui::Vec2::new(48.0, 48.0);
 const INSTANCE_ICON_GRASS_HEIGHT: f32 = 15.0;
@@ -54,6 +54,15 @@ impl MzApp {
         });
         ui.add_space(crate::layout::CARD_LIST_GAP);
         let search = self.instance_search.to_lowercase();
+        let installing: Vec<InstallingModpack> = self
+            .installing_modpacks
+            .iter()
+            .filter(|install| {
+                install.project.name.to_lowercase().contains(&search)
+                    && !self.installation_has_instance(install)
+            })
+            .cloned()
+            .collect();
         let instances: Vec<Instance> = self
             .instances
             .iter()
@@ -65,6 +74,16 @@ impl MzApp {
         }
         ui.add_space(crate::layout::CARD_LIST_GAP);
         egui::ScrollArea::vertical().show(ui, |ui| {
+            for install in installing {
+                let job = install
+                    .job_id
+                    .as_ref()
+                    .and_then(|id| self.jobs.iter().find(|job| &job.id == id))
+                    .cloned();
+                let version = self.modpack_install_version(&install);
+                self.installing_row(ui, &install.project.name, &version, job.as_ref());
+                ui.add_space(crate::layout::CARD_LIST_GAP);
+            }
             for instance in instances {
                 self.instance_row(ui, &instance);
                 ui.add_space(crate::layout::CARD_LIST_GAP);
@@ -73,7 +92,116 @@ impl MzApp {
         self.delete_dialog(ui.ctx());
     }
 
+    fn installation_has_instance(&self, install: &InstallingModpack) -> bool {
+        install
+            .job_id
+            .as_ref()
+            .and_then(|id| self.jobs.iter().find(|job| &job.id == id))
+            .and_then(Job::instance_id)
+            .is_some_and(|id| self.instances.iter().any(|instance| instance.id == id))
+    }
+
+    fn active_installation_job(&self, instance_id: &str) -> Option<Job> {
+        self.jobs
+            .iter()
+            .find(|job| {
+                matches!(job.kind.as_str(), "import" | "install")
+                    && matches!(job.status.as_str(), "queued" | "running" | "cancelling")
+                    && job.instance_id() == Some(instance_id)
+            })
+            .cloned()
+    }
+
+    fn instance_version(&self, instance: &Instance) -> String {
+        format!(
+            "{} · {}{}",
+            instance.game_version,
+            self.tr(loader_key(&instance.loader)),
+            instance
+                .loader_version
+                .as_deref()
+                .map(|version| format!(" {version}"))
+                .unwrap_or_default()
+        )
+    }
+
+    fn modpack_install_version(&self, install: &InstallingModpack) -> String {
+        let game_version = if install.game_version.is_empty() {
+            if install.project.game_versions.is_empty() {
+                "—".into()
+            } else {
+                install.project.game_versions.join(", ")
+            }
+        } else {
+            install.game_version.clone()
+        };
+        let loader = if install.loader.is_empty() {
+            install
+                .project
+                .loaders
+                .first()
+                .map(String::as_str)
+                .unwrap_or("vanilla")
+        } else {
+            &install.loader
+        };
+        format!("{} · {}", game_version, self.tr(loader_key(loader)))
+    }
+
+    fn installing_row(&mut self, ui: &mut egui::Ui, name: &str, version: &str, job: Option<&Job>) {
+        crate::card_frame(ui).show(ui, |ui| {
+            let width = ui.available_width();
+            ui.set_min_width(width);
+            ui.horizontal(|ui| {
+                instance_icon(ui, name);
+                let spacing = ui.spacing().item_spacing.x;
+                let spinner_width = ui.spacing().interact_size.y;
+                let info_width = (ui.available_width() - spinner_width - spacing).max(0.0);
+                ui.allocate_ui_with_layout(
+                    egui::vec2(info_width, INSTANCE_ROW_CONTENT_HEIGHT),
+                    egui::Layout::top_down(egui::Align::LEFT),
+                    |ui| {
+                        ui.add(
+                            egui::Label::new(egui::RichText::new(name).size(17.0).strong())
+                                .truncate(),
+                        );
+                        ui.add(egui::Label::new(version).truncate());
+                        let status = job.map_or_else(
+                            || self.tr("job.status.queued"),
+                            |job| {
+                                if job.status == "running" {
+                                    self.tr("status.installing")
+                                } else {
+                                    self.tr(job_status_key(&job.status))
+                                }
+                            },
+                        );
+                        let fraction = job.and_then(|job| {
+                            job.progress.total.filter(|total| *total > 0).map(|total| {
+                                (job.progress.completed as f32 / total as f32).clamp(0.0, 1.0)
+                            })
+                        });
+                        let text = fraction.map_or(status.clone(), |fraction| {
+                            format!("{status} · {:.0}%", fraction * 100.0)
+                        });
+                        ui.add(
+                            egui::ProgressBar::new(fraction.unwrap_or(0.0))
+                                .desired_width(info_width)
+                                .text(text),
+                        );
+                    },
+                );
+                ui.spinner();
+            });
+        });
+    }
+
     fn instance_row(&mut self, ui: &mut egui::Ui, instance: &Instance) {
+        let version = self.instance_version(instance);
+        if let Some(job) = self.active_installation_job(&instance.id) {
+            self.installing_row(ui, &instance.name, &version, Some(&job));
+            return;
+        }
         crate::card_frame(ui).show(ui, |ui| {
             let width = ui.available_width();
             ui.set_min_width(width);
@@ -108,16 +236,6 @@ impl MzApp {
                                 egui::RichText::new(&instance.name).size(17.0).strong(),
                             )
                             .truncate(),
-                        );
-                        let version = format!(
-                            "{} · {}{}",
-                            instance.game_version,
-                            self.tr(loader_key(&instance.loader)),
-                            instance
-                                .loader_version
-                                .as_deref()
-                                .map(|version| format!(" {version}"))
-                                .unwrap_or_default()
                         );
                         ui.add(egui::Label::new(version).truncate());
                         let status = self.tr(status_key(

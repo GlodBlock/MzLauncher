@@ -54,6 +54,24 @@ pub struct Job {
     pub progress: JobProgress,
     pub error: Option<JobError>,
     pub result: Option<Value>,
+    pub checkpoint: Option<Value>,
+}
+
+impl Job {
+    pub fn instance_id(&self) -> Option<&str> {
+        self.target.as_deref().or_else(|| {
+            self.checkpoint
+                .as_ref()
+                .and_then(|checkpoint| checkpoint.get("instanceId"))
+                .and_then(Value::as_str)
+                .or_else(|| {
+                    self.result
+                        .as_ref()
+                        .and_then(|result| result.get("instanceId"))
+                        .and_then(Value::as_str)
+                })
+        })
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -236,4 +254,45 @@ pub struct ModpackAnalysis {
 
 fn default_ftb_api() -> String {
     "https://api.feed-the-beast.com/v1/modpacks".into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn job(target: Option<&str>, checkpoint: Value, result: Value) -> Job {
+        serde_json::from_value(json!({
+            "id": "job-id",
+            "kind": "import",
+            "status": "running",
+            "target": target,
+            "progress": {
+                "stage": "running",
+                "completed": 1,
+                "total": 2,
+                "currentItem": null,
+            },
+            "error": null,
+            "result": result,
+            "checkpoint": checkpoint,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn job_instance_id_tracks_modpack_creation() {
+        let pending = job(None, Value::Null, Value::Null);
+        assert_eq!(pending.instance_id(), None);
+
+        let created = job(None, json!({"instanceId": "created-id"}), Value::Null);
+        assert_eq!(created.instance_id(), Some("created-id"));
+
+        let targeted = job(
+            Some("target-id"),
+            json!({"instanceId": "created-id"}),
+            Value::Null,
+        );
+        assert_eq!(targeted.instance_id(), Some("target-id"));
+    }
 }

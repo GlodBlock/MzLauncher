@@ -397,6 +397,16 @@ impl MzApp {
         self.modpack_browser
             .requested
             .insert(project.project_id.clone());
+        self.installing_modpacks
+            .push(crate::app::InstallingModpack {
+                project: project.clone(),
+                game_version: self.modpack_browser.game_version.clone(),
+                loader: self.modpack_browser.loader.clone(),
+                job_id: None,
+            });
+        self.create = None;
+        self.page = crate::app::Page::Instances;
+        self.selected_instance = None;
         self.call(
             "modpack.install",
             json!({

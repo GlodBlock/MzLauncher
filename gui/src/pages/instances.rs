@@ -14,7 +14,6 @@ const NEW_INSTANCE_ICON_SIZE: egui::Vec2 = egui::Vec2::new(18.0, 18.0);
 impl MzApp {
     pub fn open_create_dialog(&mut self) {
         self.page = Page::Instances;
-        self.selected_instance = None;
         self.create = Some(NewInstanceState {
             name: String::new(),
             game_version: String::new(),
@@ -40,11 +39,6 @@ impl MzApp {
     }
 
     pub fn instances_page(&mut self, ui: &mut egui::Ui) {
-        if self.create.is_some() {
-            self.new_instance_page(ui);
-            self.delete_dialog(ui.ctx());
-            return;
-        }
         if let Some(id) = self.selected_instance.clone() {
             self.instance_detail(ui, &id);
             return;

@@ -245,7 +245,7 @@ fn account_action_button(
     name: &str,
     light_png: &'static [u8],
     dark_png: &'static [u8],
-) -> egui::ImageButton<'static> {
+) -> egui::Button<'static> {
     let (theme, png) = if ui.visuals().dark_mode {
         ("dark", dark_png)
     } else {
@@ -253,5 +253,8 @@ fn account_action_button(
     };
     let image = egui::Image::from_bytes(format!("bytes://account-{name}-{theme}.png"), png)
         .fit_to_exact_size(ACCOUNT_ACTION_ICON_SIZE);
-    egui::ImageButton::new(image)
+    let button_side = ACCOUNT_ACTION_ICON_SIZE.x + 2.0 * ui.spacing().button_padding.x;
+    egui::Button::image(image)
+        .min_size(egui::Vec2::splat(button_side))
+        .corner_radius(egui::CornerRadius::same(7))
 }

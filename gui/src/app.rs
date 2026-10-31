@@ -881,5 +881,6 @@ impl eframe::App for MzApp {
                 Page::Settings => self.settings_page(ui),
             }
         });
+        self.new_instance_window(ctx);
     }
 }

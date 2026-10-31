@@ -13,26 +13,32 @@ const ACTION_BUTTON_SIZE: egui::Vec2 = egui::Vec2::new(36.0, 32.0);
 const MODPACK_ICON_SIZE: egui::Vec2 = egui::Vec2::new(56.0, 56.0);
 const MODPACK_ROW_HEIGHT: f32 = 76.0;
 const RESPONSIVE_TOOLBAR_WIDTH: f32 = 720.0;
+const NEW_INSTANCE_WINDOW_SIZE: [f32; 2] = [1040.0, 700.0];
+const NEW_INSTANCE_MIN_WINDOW_SIZE: [f32; 2] = [760.0, 520.0];
 
 impl MzApp {
-    pub fn new_instance_page(&mut self, ui: &mut egui::Ui) {
-        let mut close = false;
-        let creating = self.create.as_ref().is_some_and(|create| create.creating);
-        ui.horizontal(|ui| {
-            if ui
-                .add_enabled(!creating, egui::Button::new(self.tr("action.back_to_list")))
-                .clicked()
-            {
-                close = true;
-            }
-            ui.heading(self.tr("create.title"));
-        });
-        ui.add_space(crate::layout::SECTION_GAP);
-        if close {
-            self.create = None;
+    pub fn new_instance_window(&mut self, ctx: &egui::Context) {
+        if self.create.is_none() {
             return;
         }
+        ctx.show_viewport_immediate(
+            egui::ViewportId::from_hash_of("new_instance_window"),
+            egui::ViewportBuilder::default()
+                .with_title(self.tr("create.title"))
+                .with_inner_size(NEW_INSTANCE_WINDOW_SIZE)
+                .with_min_inner_size(NEW_INSTANCE_MIN_WINDOW_SIZE),
+            |ctx, _class| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    self.new_instance_page(ui);
+                });
+                if ctx.input(|input| input.viewport().close_requested()) {
+                    self.create = None;
+                }
+            },
+        );
+    }
 
+    fn new_instance_page(&mut self, ui: &mut egui::Ui) {
         let tab = self
             .create
             .as_ref()

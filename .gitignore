@@ -2,6 +2,9 @@
 /target
 /dist
 
+# 图标转换工具
+/scripts/svg-to-png/node_modules/
+
 # 构建产物
 *.exe
 *.dll

@@ -10,6 +10,7 @@ const INSTANCE_ICON_GRASS_HEIGHT: f32 = 15.0;
 const INSTANCE_ROW_CONTENT_HEIGHT: f32 = 64.0;
 const NEW_INSTANCE_BAR_HEIGHT: f32 = 48.0;
 const NEW_INSTANCE_ICON_SIZE: egui::Vec2 = egui::Vec2::new(18.0, 18.0);
+const RETRY_INSTALL_ICON_SIZE: egui::Vec2 = egui::Vec2::new(18.0, 18.0);
 
 impl MzApp {
     pub fn open_create_dialog(&mut self) {
@@ -225,8 +226,22 @@ impl MzApp {
                 } else if let Some(job) =
                     job.filter(|job| matches!(job.status.as_str(), "failed" | "interrupted"))
                 {
+                    let (theme, png) = if ui.visuals().dark_mode {
+                        (
+                            "dark",
+                            &include_bytes!("../../assets/rotate-right-dark.png")[..],
+                        )
+                    } else {
+                        (
+                            "light",
+                            &include_bytes!("../../assets/rotate-right-light.png")[..],
+                        )
+                    };
+                    let image =
+                        egui::Image::from_bytes(format!("bytes://retry-install-{theme}.png"), png)
+                            .fit_to_exact_size(RETRY_INSTALL_ICON_SIZE);
                     if ui
-                        .button("↻")
+                        .add(egui::Button::image(image))
                         .on_hover_text(self.tr("action.retry_install"))
                         .clicked()
                     {

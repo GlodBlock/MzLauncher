@@ -12,6 +12,9 @@ const NEW_INSTANCE_BAR_HEIGHT: f32 = 48.0;
 const NEW_INSTANCE_ICON_SIZE: egui::Vec2 = egui::Vec2::new(18.0, 18.0);
 const NEW_INSTANCE_ICON_TEXT_GAP: f32 = 8.0;
 const INSTALL_ACTION_SIZE: egui::Vec2 = crate::layout::TOOLBAR_CONTROL_SIZE;
+const INSTALL_DETAILS_WINDOW_SIZE: [f32; 2] = [560.0, 640.0];
+const INSTALL_DETAILS_MIN_WINDOW_SIZE: [f32; 2] = [420.0, 320.0];
+const ACTIVE_DOWNLOADS_MAX_HEIGHT: f32 = 160.0;
 
 impl MzApp {
     pub fn open_create_dialog(&mut self) {
@@ -110,7 +113,6 @@ impl MzApp {
             }
         });
         self.delete_dialog(ui.ctx());
-        self.install_details_dialog(ui.ctx());
     }
 
     fn installation_has_instance(&self, install: &InstallingModpack) -> bool {
@@ -447,7 +449,7 @@ impl MzApp {
         }
     }
 
-    fn install_details_dialog(&mut self, ctx: &egui::Context) {
+    pub(crate) fn install_details_window(&mut self, ctx: &egui::Context) {
         let Some(id) = self.install_details_job.clone() else {
             return;
         };
@@ -465,50 +467,48 @@ impl MzApp {
             &[("count", &job.progress.pending_items.len().to_string())],
         );
         let empty = self.tr("install_details.empty");
-        let mut close = false;
-        egui::Window::new(self.tr("install_details.title"))
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .collapsible(false)
-            .default_width(480.0)
-            .show(ctx, |ui| {
-                ui.set_min_width(ui.available_width());
-                ui.label(egui::RichText::new(active_heading).strong());
-                if active_items.is_empty() {
-                    ui.label(&empty);
-                } else {
-                    egui::ScrollArea::vertical()
-                        .id_salt("active_downloads")
-                        .auto_shrink([false, false])
-                        .max_height(120.0)
-                        .show(ui, |ui| {
-                            for item in active_items {
-                                ui.add(egui::Label::new(item).wrap());
-                            }
-                        });
+        ctx.show_viewport_immediate(
+            egui::ViewportId::from_hash_of("install_details_window"),
+            egui::ViewportBuilder::default()
+                .with_title(self.tr("install_details.title"))
+                .with_inner_size(INSTALL_DETAILS_WINDOW_SIZE)
+                .with_min_inner_size(INSTALL_DETAILS_MIN_WINDOW_SIZE),
+            |ctx, _class| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.label(egui::RichText::new(&active_heading).strong());
+                    if active_items.is_empty() {
+                        ui.label(&empty);
+                    } else {
+                        egui::ScrollArea::vertical()
+                            .id_salt("active_downloads")
+                            .auto_shrink([false, true])
+                            .max_height(ACTIVE_DOWNLOADS_MAX_HEIGHT)
+                            .show(ui, |ui| {
+                                for item in &active_items {
+                                    ui.add(egui::Label::new(*item).wrap());
+                                }
+                            });
+                    }
+                    ui.separator();
+                    ui.label(egui::RichText::new(&pending_heading).strong());
+                    if job.progress.pending_items.is_empty() {
+                        ui.label(&empty);
+                    } else {
+                        egui::ScrollArea::vertical()
+                            .id_salt("pending_downloads")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                for item in &job.progress.pending_items {
+                                    ui.add(egui::Label::new(item).wrap());
+                                }
+                            });
+                    }
+                });
+                if ctx.input(|input| input.viewport().close_requested()) {
+                    self.install_details_job = None;
                 }
-                ui.separator();
-                ui.label(egui::RichText::new(pending_heading).strong());
-                if job.progress.pending_items.is_empty() {
-                    ui.label(&empty);
-                } else {
-                    egui::ScrollArea::vertical()
-                        .id_salt("pending_downloads")
-                        .auto_shrink([false, false])
-                        .max_height(200.0)
-                        .show(ui, |ui| {
-                            for item in &job.progress.pending_items {
-                                ui.add(egui::Label::new(item).wrap());
-                            }
-                        });
-                }
-                ui.separator();
-                if ui.button(self.tr("install_details.close")).clicked() {
-                    close = true;
-                }
-            });
-        if close {
-            self.install_details_job = None;
-        }
+            },
+        );
     }
 
     fn instance_detail(&mut self, ui: &mut egui::Ui, id: &str) {

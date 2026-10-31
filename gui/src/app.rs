@@ -1056,6 +1056,7 @@ impl eframe::App for MzApp {
             }
         });
         self.new_instance_window(ctx);
+        self.install_details_window(ctx);
     }
 }
 

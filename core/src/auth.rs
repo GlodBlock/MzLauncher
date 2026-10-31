@@ -402,7 +402,11 @@ impl AuthService {
         tokens: TokenSet,
     ) -> CoreResult<Uuid> {
         let (skin_url, skin_model) = profile_skin(&profile);
-        if let Some(existing) = self.store.accounts()?.into_iter().find(|account| {
+        let accounts = self.store.accounts()?;
+        let first_microsoft = !accounts
+            .iter()
+            .any(|account| account.kind == AccountKind::Microsoft);
+        if let Some(existing) = accounts.into_iter().find(|account| {
             account.profile_id == profile.id && account.kind == AccountKind::Microsoft
         }) {
             let key = existing
@@ -438,6 +442,9 @@ impl AuthService {
             last_validated_at: Some(Utc::now()),
         };
         self.store.save_account(&account)?;
+        if first_microsoft {
+            self.select(id)?;
+        }
         Ok(id)
     }
 
@@ -1037,6 +1044,44 @@ mod tests {
             .join(format!("{id}.png"))
             .is_file());
         server.await.unwrap();
+    }
+
+    #[test]
+    fn first_microsoft_account_becomes_default() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = AppPaths::new(temp.path().join("data"));
+        paths.initialize().unwrap();
+        let config = Arc::new(ConfigManager::load(paths.clone()).unwrap());
+        let store = Arc::new(Store::open(&paths).unwrap());
+        let service = AuthService::new(config.clone(), store, paths).unwrap();
+        let profile = |id: &str| MinecraftProfile {
+            id: id.into(),
+            name: format!("Player {id}"),
+            skins: Vec::new(),
+        };
+        let tokens = || TokenSet {
+            microsoft_access_token: "microsoft-token".into(),
+            refresh_token: Some("refresh-token".into()),
+            minecraft_access_token: "minecraft-token".into(),
+            microsoft_expires_at: Utc::now() + chrono::Duration::hours(1),
+            minecraft_expires_at: Utc::now() + chrono::Duration::hours(1),
+        };
+        let first = service
+            .save_authenticated_account(profile("first"), tokens())
+            .unwrap();
+        assert_eq!(config.get().default_account_id, Some(first));
+        let second = service
+            .save_authenticated_account(profile("second"), tokens())
+            .unwrap();
+        assert_eq!(config.get().default_account_id, Some(first));
+        service.select(second).unwrap();
+        let reauthenticated = service
+            .save_authenticated_account(profile("first"), tokens())
+            .unwrap();
+        assert_eq!(reauthenticated, first);
+        assert_eq!(config.get().default_account_id, Some(second));
+        service.logout(first).unwrap();
+        service.logout(second).unwrap();
     }
 
     #[tokio::test]

@@ -851,6 +851,7 @@ impl MzApp {
                     self.login = Some(session);
                     if finished {
                         self.call("account.list", Value::Null, Value::Null);
+                        self.call("settings.get", Value::Null, Value::Null);
                     }
                 }
             }

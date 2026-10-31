@@ -598,20 +598,47 @@ pub fn java_arch() -> &'static str {
 }
 
 pub fn library_artifact(library: &Library) -> CoreResult<RemoteFile> {
-    if let Some(artifact) = &library.downloads.artifact {
-        return Ok(artifact.clone());
+    let artifact = library.downloads.artifact.as_ref();
+    if artifact.is_some_and(|artifact| !artifact.url.trim().is_empty()) {
+        return Ok(artifact.cloned().unwrap());
     }
-    let base = library.url.as_ref().ok_or_else(|| {
-        CoreError::InvalidInput(format!("library {} has no download metadata", library.name))
-    })?;
-    let path = maven_artifact_path(&library.name)?;
+    let path = match artifact.and_then(|artifact| artifact.path.clone()) {
+        Some(path) => path,
+        None => maven_artifact_path(&library.name)?,
+    };
+    let default_base = if library.name.starts_with("net.minecraftforge:") {
+        "https://maven.minecraftforge.net"
+    } else {
+        "https://libraries.minecraft.net"
+    };
+    let base = library
+        .url
+        .as_deref()
+        .filter(|base| !base.trim().is_empty())
+        .unwrap_or(default_base);
+    let base = normalize_repository_base(base);
     Ok(RemoteFile {
         url: format!("{}/{path}", base.trim_end_matches('/')),
-        sha1: library.sha1.clone(),
-        sha256: library.sha256.clone(),
-        size: library.size,
+        sha1: artifact
+            .and_then(|artifact| artifact.sha1.clone())
+            .or_else(|| library.sha1.clone()),
+        sha256: artifact
+            .and_then(|artifact| artifact.sha256.clone())
+            .or_else(|| library.sha256.clone()),
+        size: artifact.and_then(|artifact| artifact.size).or(library.size),
         path: Some(path),
     })
+}
+
+fn normalize_repository_base(base: &str) -> String {
+    let base = base.trim_end_matches('/');
+    match base {
+        "http://libraries.minecraft.net" => "https://libraries.minecraft.net".into(),
+        "http://files.minecraftforge.net/maven" | "http://maven.minecraftforge.net" => {
+            "https://maven.minecraftforge.net".into()
+        }
+        _ => base.into(),
+    }
 }
 
 fn maven_artifact_path(name: &str) -> CoreResult<String> {
@@ -702,6 +729,42 @@ mod tests {
             ..Rule::default()
         }];
         assert!(!rules_allow(&rules, &HashMap::new()));
+    }
+
+    #[test]
+    fn fills_empty_legacy_artifact_urls_from_the_repository() {
+        let forge = Library {
+            name: "net.minecraftforge:forge:1.12.2-14.23.5.2860".into(),
+            url: Some("http://files.minecraftforge.net/maven".into()),
+            downloads: LibraryDownloads {
+                artifact: Some(RemoteFile {
+                    path: Some(
+                        "net/minecraftforge/forge/1.12.2-14.23.5.2860/forge-1.12.2-14.23.5.2860.jar"
+                            .into(),
+                    ),
+                    ..RemoteFile::default()
+                }),
+                ..LibraryDownloads::default()
+            },
+            ..Library::default()
+        };
+        assert_eq!(
+            library_artifact(&forge).unwrap().url,
+            "https://maven.minecraftforge.net/net/minecraftforge/forge/1.12.2-14.23.5.2860/forge-1.12.2-14.23.5.2860.jar"
+        );
+
+        let mojang = Library {
+            name: "com.google.guava:guava:17.0".into(),
+            downloads: LibraryDownloads {
+                artifact: Some(RemoteFile::default()),
+                ..LibraryDownloads::default()
+            },
+            ..Library::default()
+        };
+        assert_eq!(
+            library_artifact(&mojang).unwrap().url,
+            "https://libraries.minecraft.net/com/google/guava/guava/17.0/guava-17.0.jar"
+        );
     }
 
     #[test]

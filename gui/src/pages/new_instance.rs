@@ -16,6 +16,7 @@ const NEW_INSTANCE_WINDOW_SIZE: [f32; 2] = [1040.0, 700.0];
 const NEW_INSTANCE_MIN_WINDOW_SIZE: [f32; 2] = [760.0, 520.0];
 const MODPACK_VERSION_WINDOW_SIZE: [f32; 2] = [520.0, 220.0];
 const MODPACK_VERSION_MIN_WINDOW_SIZE: [f32; 2] = [420.0, 180.0];
+const MODPACK_VERSION_MENU_MAX_HEIGHT: f32 = 320.0;
 
 impl MzApp {
     pub fn new_instance_window(&mut self, ctx: &egui::Context) {
@@ -44,47 +45,36 @@ impl MzApp {
         let Some(selection) = self.modpack_version_selection.clone() else {
             return;
         };
+        let parent_id = egui::ViewportId::from_hash_of("new_instance_window");
+        let position = ctx.input(|input| {
+            input
+                .raw
+                .viewports
+                .get(&parent_id)
+                .and_then(|viewport| viewport.outer_rect.or(viewport.inner_rect))
+                .or_else(|| input.raw.viewport().outer_rect)
+                .map(|rect| {
+                    rect.center()
+                        - egui::vec2(
+                            MODPACK_VERSION_WINDOW_SIZE[0],
+                            MODPACK_VERSION_WINDOW_SIZE[1],
+                        ) * 0.5
+                })
+        });
+        let mut builder = egui::ViewportBuilder::default()
+            .with_title(self.tr("create.select_modpack_version"))
+            .with_inner_size(MODPACK_VERSION_WINDOW_SIZE)
+            .with_min_inner_size(MODPACK_VERSION_MIN_WINDOW_SIZE);
+        if let Some(position) = position {
+            builder = builder.with_position(position);
+        }
         let mut close = false;
         let mut install = None;
         ctx.show_viewport_immediate(
             egui::ViewportId::from_hash_of("modpack_version_window"),
-            egui::ViewportBuilder::default()
-                .with_title(self.tr("create.select_modpack_version"))
-                .with_inner_size(MODPACK_VERSION_WINDOW_SIZE)
-                .with_min_inner_size(MODPACK_VERSION_MIN_WINDOW_SIZE),
+            builder,
             |ctx, _class| {
-                egui::CentralPanel::default().show(ctx, |ui| {
-                    ui.heading(&selection.project.name);
-                    ui.add_space(crate::layout::SECTION_GAP);
-                    if selection.loading {
-                        ui.spinner();
-                    } else if selection.versions.is_empty() {
-                        ui.label(self.tr("create.no_modpack_versions"));
-                    } else {
-                        let mut selected = selection.selected.clone();
-                        let selected_name = selection
-                            .versions
-                            .iter()
-                            .find(|version| Some(&version.file_id) == selected.as_ref())
-                            .map(|version| version.version_name.clone())
-                            .unwrap_or_else(|| self.tr("common.select"));
-                        egui::ComboBox::from_id_salt("modpack_version_selection")
-                            .width(ui.available_width())
-                            .truncate()
-                            .selected_text(selected_name)
-                            .show_ui(ui, |ui| {
-                                for version in &selection.versions {
-                                    ui.selectable_value(
-                                        &mut selected,
-                                        Some(version.file_id.clone()),
-                                        &version.version_name,
-                                    );
-                                }
-                            });
-                        if let Some(current) = &mut self.modpack_version_selection {
-                            current.selected = selected;
-                        }
-                    }
+                egui::TopBottomPanel::bottom("modpack_version_actions").show(ctx, |ui| {
                     ui.add_space(crate::layout::SECTION_GAP);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
@@ -103,6 +93,40 @@ impl MzApp {
                             close = true;
                         }
                     });
+                });
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.heading(&selection.project.name);
+                    ui.add_space(crate::layout::SECTION_GAP);
+                    if selection.loading {
+                        ui.spinner();
+                    } else if selection.versions.is_empty() {
+                        ui.label(self.tr("create.no_modpack_versions"));
+                    } else {
+                        let mut selected = selection.selected.clone();
+                        let selected_name = selection
+                            .versions
+                            .iter()
+                            .find(|version| Some(&version.file_id) == selected.as_ref())
+                            .map(|version| version.version_name.clone())
+                            .unwrap_or_else(|| self.tr("common.select"));
+                        egui::ComboBox::from_id_salt("modpack_version_selection")
+                            .width(ui.available_width())
+                            .height(MODPACK_VERSION_MENU_MAX_HEIGHT)
+                            .truncate()
+                            .selected_text(selected_name)
+                            .show_ui(ui, |ui| {
+                                for version in &selection.versions {
+                                    ui.selectable_value(
+                                        &mut selected,
+                                        Some(version.file_id.clone()),
+                                        &version.version_name,
+                                    );
+                                }
+                            });
+                        if let Some(current) = &mut self.modpack_version_selection {
+                            current.selected = selected;
+                        }
+                    }
                 });
                 if ctx.input(|input| input.viewport().close_requested()) {
                     close = true;

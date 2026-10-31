@@ -89,7 +89,7 @@ fn searches_remote_modpacks_and_validates_installation() {
             let mut request = [0_u8; 4096];
             let read = stream.read(&mut request).unwrap();
             let request = String::from_utf8_lossy(&request[..read]);
-            let body = if request.starts_with("GET /v1/modpacks/public/modpack/popular/plays/20 ") {
+            let body = if request.starts_with("GET /v1/modpacks/public/modpack/popular/plays/21 ") {
                 json!({"status":"success","packs":[125]})
             } else if request.starts_with("GET /v1/modpacks/public/modpack/125 ") {
                 json!({
@@ -170,6 +170,121 @@ fn searches_remote_modpacks_and_validates_installation() {
         json!({"provider":"ftb","projectId":"../125","projectName":"FTB Evolution"}),
     );
     assert_eq!(invalid["error"]["code"], "invalid_input");
+    client.call("stop", "system.shutdown", Value::Null);
+    drop(client);
+    assert!(child.wait().unwrap().success());
+    server.join().unwrap();
+}
+
+#[test]
+fn searches_modrinth_titles_by_downloads_in_pages() {
+    use std::io::Read;
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        for _ in 0..4 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 4096];
+            let read = stream.read(&mut request).unwrap();
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.starts_with("GET /v2/search?"), "{request}");
+            assert!(request.contains("limit=50"), "{request}");
+            assert!(request.contains("index=downloads"), "{request}");
+            let hits = if request.contains("offset=50") {
+                Vec::new()
+            } else {
+                (0..49)
+                    .map(|index| {
+                        json!({
+                            "project_id": index.to_string(),
+                            "title": format!("Matching Pack {index}"),
+                            "description": "Description",
+                            "author": "Author",
+                            "icon_url": null,
+                            "slug": format!("matching-{index}"),
+                            "downloads": 5000 - index,
+                            "versions": ["1.21.1"],
+                            "categories": ["fabric"]
+                        })
+                    })
+                    .chain(std::iter::once(json!({
+                        "project_id": "other",
+                        "title": "Other Pack",
+                        "description": "matching pack appears only in the description",
+                        "author": "Author",
+                        "icon_url": null,
+                        "slug": "other",
+                        "downloads": 10000,
+                        "versions": ["1.21.1"],
+                        "categories": ["fabric"]
+                    })))
+                    .collect()
+            };
+            let body = json!({"hits": hits}).to_string();
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        }
+    });
+
+    let temp = tempfile::tempdir().unwrap();
+    let data = temp.path().join("data");
+    let paths = mzlauncher_core::paths::AppPaths::new(data.clone());
+    paths.initialize().unwrap();
+    let mut config = mzlauncher_core::config::AppConfig::default();
+    config.endpoints.modrinth_api = format!("http://{address}/v2");
+    std::fs::write(
+        paths.config_file(),
+        serde_json::to_vec_pretty(&config).unwrap(),
+    )
+    .unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mzlauncher-core"))
+        .arg("--data-dir")
+        .arg(data)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut client = Client {
+        stdin: child.stdin.take().unwrap(),
+        stdout: BufReader::new(child.stdout.take().unwrap()),
+    };
+    client.call(
+        "hello",
+        "system.handshake",
+        json!({"clientVersion": "test", "minProtocol": 2, "maxProtocol": 2}),
+    );
+    for (id, offset, expected_len, expected_name) in [
+        ("first", 0, 21, "Matching Pack 0"),
+        ("second", 20, 21, "Matching Pack 20"),
+        ("last", 40, 9, "Matching Pack 40"),
+    ] {
+        let response = client.call(
+            id,
+            "modpack.search",
+            json!({
+                "provider": "modrinth",
+                "query": "matching pack",
+                "gameVersion": null,
+                "loader": null,
+                "offset": offset
+            }),
+        );
+        assert!(response["error"].is_null(), "search failed: {response}");
+        assert_eq!(response["result"].as_array().unwrap().len(), expected_len);
+        assert_eq!(response["result"][0]["name"], expected_name);
+        assert!(response["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|project| project["name"] != "Other Pack"));
+    }
     client.call("stop", "system.shutdown", Value::Null);
     drop(client);
     assert!(child.wait().unwrap().success());

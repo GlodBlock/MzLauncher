@@ -1,7 +1,7 @@
 use eframe::egui;
 use serde_json::{json, Value};
 
-use crate::app::{MzApp, NewInstanceTab};
+use crate::app::{MzApp, NewInstanceTab, MODPACK_PAGE_SIZE};
 use crate::model::ModProject;
 use crate::pages::home::loader_key;
 
@@ -94,6 +94,16 @@ impl MzApp {
     }
 
     pub fn search_modpacks(&mut self) {
+        self.modpack_browser.offset = 0;
+        self.request_modpack_search();
+    }
+
+    fn change_modpack_page(&mut self, offset: usize) {
+        self.modpack_browser.offset = offset;
+        self.request_modpack_search();
+    }
+
+    fn request_modpack_search(&mut self) {
         let Some(provider) = self
             .create
             .as_ref()
@@ -106,11 +116,13 @@ impl MzApp {
             self.modpack_browser.query.clear();
             self.modpack_browser.game_version.clear();
             self.modpack_browser.loader.clear();
+            self.modpack_browser.offset = 0;
         }
         self.modpack_browser.generation += 1;
         let generation = self.modpack_browser.generation;
         self.modpack_browser.results.clear();
         self.modpack_browser.searching = true;
+        self.modpack_browser.has_next = false;
         self.call(
             "modpack.search",
             json!({
@@ -118,6 +130,7 @@ impl MzApp {
                 "query": self.modpack_browser.query.trim(),
                 "gameVersion": optional_filter(&self.modpack_browser.game_version),
                 "loader": optional_filter(&self.modpack_browser.loader),
+                "offset": self.modpack_browser.offset,
             }),
             json!({"provider": provider, "generation": generation}),
         );
@@ -230,6 +243,7 @@ impl MzApp {
         let results = self.modpack_browser.results.clone();
         let requested = self.modpack_browser.requested.clone();
         let mut install = None;
+        let mut page = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -253,6 +267,42 @@ impl MzApp {
                     }
                 }
             });
+        if self.modpack_browser.offset > 0 || self.modpack_browser.has_next {
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(
+                        self.modpack_browser.offset >= MODPACK_PAGE_SIZE,
+                        egui::Button::new(self.tr("action.previous_page")),
+                    )
+                    .clicked()
+                {
+                    page = Some(
+                        self.modpack_browser
+                            .offset
+                            .saturating_sub(MODPACK_PAGE_SIZE),
+                    );
+                }
+                ui.label(self.trf(
+                    "create.page",
+                    &[(
+                        "page",
+                        &(self.modpack_browser.offset / MODPACK_PAGE_SIZE + 1).to_string(),
+                    )],
+                ));
+                if ui
+                    .add_enabled(
+                        self.modpack_browser.has_next,
+                        egui::Button::new(self.tr("action.next_page")),
+                    )
+                    .clicked()
+                {
+                    page = Some(self.modpack_browser.offset + MODPACK_PAGE_SIZE);
+                }
+            });
+        }
+        if let Some(offset) = page {
+            self.change_modpack_page(offset);
+        }
         if let Some(project) = install {
             self.install_modpack(project);
         }

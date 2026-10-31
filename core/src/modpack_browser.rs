@@ -11,7 +11,9 @@ use crate::error::{CoreError, CoreResult};
 use crate::job::JobContext;
 use crate::model::{LoaderKind, ModProvider};
 use crate::modpack::{ModpackAnalysis, ModpackFormat, PackFile};
-use crate::mods::{loader_name, ModProject, ModSearchParams, ModService};
+use crate::mods::{
+    loader_name, ModProject, ModSearchParams, ModService, MODPACK_SEARCH_BATCH_SIZE,
+};
 use crate::paths::{safe_relative_path, AppPaths};
 
 const FTB_CACHE_TTL: Duration = Duration::from_secs(300);
@@ -70,10 +72,36 @@ impl ModpackBrowserService {
         match params.provider {
             ModProvider::Ftb => self.search_ftb(&params).await,
             ModProvider::Modrinth | ModProvider::CurseForge => {
-                self.mods.search_modpacks(params).await
+                self.search_api_modpacks(params).await
             }
             _ => Err(CoreError::InvalidInput("invalid modpack provider".into())),
         }
+    }
+
+    async fn search_api_modpacks(
+        &self,
+        mut params: ModSearchParams,
+    ) -> CoreResult<Vec<ModProject>> {
+        let requested_offset = params.offset;
+        let required = requested_offset.saturating_add(MAX_SEARCH_RESULTS + 1);
+        let query = params.query.clone();
+        let mut projects = Vec::new();
+        let mut provider_offset = 0;
+        loop {
+            params.offset = provider_offset;
+            let batch = self.mods.search_modpacks(params.clone()).await?;
+            let received = batch.len();
+            projects.extend(
+                batch
+                    .into_iter()
+                    .filter(|project| title_matches(&project.name, &query)),
+            );
+            if projects.len() >= required || received < MODPACK_SEARCH_BATCH_SIZE {
+                break;
+            }
+            provider_offset = provider_offset.saturating_add(received);
+        }
+        Ok(paginate_by_downloads(projects, requested_offset))
     }
 
     pub async fn fetch(
@@ -146,15 +174,21 @@ impl ModpackBrowserService {
             && params.game_version.is_none()
             && params.loader.is_none();
         if unfiltered {
+            let limit = params.offset.saturating_add(MAX_SEARCH_RESULTS + 1);
             let response: FtbPackList = crate::mods::send_json(
                 self.ftb.get(format!(
-                    "{}/public/modpack/popular/plays/{MAX_SEARCH_RESULTS}",
+                    "{}/public/modpack/popular/plays/{limit}",
                     self.ftb_base
                 )),
                 "ftb",
             )
             .await?;
-            return self.ftb_projects(response.packs).await;
+            let projects = self.ftb_projects(response.packs).await?;
+            return Ok(projects
+                .into_iter()
+                .skip(params.offset)
+                .take(MAX_SEARCH_RESULTS + 1)
+                .collect());
         }
 
         let cached = self
@@ -177,11 +211,10 @@ impl ModpackBrowserService {
                 projects
             }
         };
-        let query = params.query.trim().to_lowercase();
-        Ok(projects
+        let projects = projects
             .into_iter()
             .filter(|project| {
-                project.name.to_lowercase().contains(&query)
+                title_matches(&project.name, &params.query)
                     && params
                         .game_version
                         .as_ref()
@@ -190,8 +223,8 @@ impl ModpackBrowserService {
                         .loader
                         .is_none_or(|loader| project.loaders.contains(&loader))
             })
-            .take(MAX_SEARCH_RESULTS)
-            .collect())
+            .collect();
+        Ok(paginate_by_downloads(projects, params.offset))
     }
 
     async fn ftb_projects(&self, ids: Vec<u64>) -> CoreResult<Vec<ModProject>> {
@@ -326,6 +359,27 @@ impl ModpackBrowserService {
             files,
         })
     }
+}
+
+fn title_matches(title: &str, query: &str) -> bool {
+    let title = title.to_lowercase();
+    query
+        .split_whitespace()
+        .all(|term| title.contains(&term.to_lowercase()))
+}
+
+fn paginate_by_downloads(mut projects: Vec<ModProject>, offset: usize) -> Vec<ModProject> {
+    projects.sort_by(|left, right| {
+        right
+            .downloads
+            .cmp(&left.downloads)
+            .then_with(|| left.project_id.cmp(&right.project_id))
+    });
+    projects
+        .into_iter()
+        .skip(offset)
+        .take(MAX_SEARCH_RESULTS + 1)
+        .collect()
 }
 
 fn ftb_project(project: FtbProject) -> ModProject {
@@ -487,4 +541,52 @@ struct FtbFile {
 struct FtbHashes {
     sha1: Option<String>,
     sha256: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn project(id: usize, downloads: u64) -> ModProject {
+        ModProject {
+            provider: ModProvider::Ftb,
+            project_id: id.to_string(),
+            name: format!("Pack {id}"),
+            summary: String::new(),
+            author: String::new(),
+            icon_url: None,
+            page_url: None,
+            downloads,
+            game_versions: Vec::new(),
+            loaders: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn title_search_is_case_insensitive_and_requires_every_term() {
+        assert!(title_matches("All the Mods 10", "all mods"));
+        assert!(title_matches("Create Above and Beyond", "CREATE beyond"));
+        assert!(title_matches("Any Pack", "   "));
+        assert!(!title_matches("All the Mods 10", "all missing"));
+        assert!(!title_matches("Another Pack", "all"));
+    }
+
+    #[test]
+    fn pagination_sorts_by_downloads_and_keeps_one_probe_item() {
+        let projects = (0..45).map(|index| project(index, index as u64)).collect();
+        let first = paginate_by_downloads(projects, 0);
+        assert_eq!(first.len(), 21);
+        assert_eq!(first[0].downloads, 44);
+        assert_eq!(first[20].downloads, 24);
+
+        let projects = (0..45).map(|index| project(index, index as u64)).collect();
+        let second = paginate_by_downloads(projects, 20);
+        assert_eq!(second.len(), 21);
+        assert_eq!(second[0].downloads, 24);
+
+        let projects = (0..45).map(|index| project(index, index as u64)).collect();
+        let last = paginate_by_downloads(projects, 40);
+        assert_eq!(last.len(), 5);
+        assert_eq!(last[0].downloads, 4);
+    }
 }

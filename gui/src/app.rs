@@ -10,6 +10,7 @@ use crate::preferences::GuiPreferences;
 use crate::skin::SkinCache;
 
 pub const PROTOCOL_VERSION: u32 = 2;
+pub const MODPACK_PAGE_SIZE: usize = 20;
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -79,6 +80,8 @@ pub struct ModpackBrowser {
     pub results: Vec<ModProject>,
     pub searching: bool,
     pub generation: u64,
+    pub offset: usize,
+    pub has_next: bool,
     pub requested: std::collections::HashSet<String>,
     pub install_jobs: HashMap<String, String>,
 }
@@ -93,6 +96,8 @@ impl ModpackBrowser {
             results: Vec::new(),
             searching: false,
             generation: 0,
+            offset: 0,
+            has_next: false,
             requested: std::collections::HashSet::new(),
             install_jobs: HashMap::new(),
         }
@@ -704,7 +709,10 @@ impl MzApp {
             }
             "modpack.search" => {
                 if self.modpack_request_matches(pending) {
-                    self.modpack_browser.results = parse_list(result);
+                    let mut results: Vec<ModProject> = parse_list(result);
+                    self.modpack_browser.has_next = results.len() > MODPACK_PAGE_SIZE;
+                    results.truncate(MODPACK_PAGE_SIZE);
+                    self.modpack_browser.results = results;
                     self.modpack_browser.searching = false;
                 }
             }

@@ -11,6 +11,8 @@
 
     "action.reconnect": "重新连接 core",
     "action.refresh": "刷新",
+    "action.previous_page": "上一页",
+    "action.next_page": "下一页",
     "action.cancel": "取消",
     "action.new_instance": "新建实例",
     "action.import_modpack": "导入整合包",
@@ -143,6 +145,7 @@
     "create.all_versions": "全部版本",
     "create.all_loaders": "全部加载器",
     "create.modpack_empty": "没有匹配的整合包。",
+    "create.page": "第 {page} 页",
     "create.create_install": "创建并安装",
     "create.game_version": "游戏版本：",
     "create.include_snapshots": "包含快照",

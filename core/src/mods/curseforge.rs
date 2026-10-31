@@ -54,12 +54,21 @@ impl ModProviderApi for CurseForge {
             super::ModProjectType::Mod => "6",
             super::ModProjectType::Modpack => "4471",
         };
+        let page_size = if params.project_type == super::ModProjectType::Modpack {
+            super::MODPACK_SEARCH_BATCH_SIZE
+        } else {
+            20
+        };
         let mut request = self.request(reqwest::Method::GET, "/mods/search")?.query(&[
             ("gameId", "432".to_owned()),
             ("classId", class_id.to_owned()),
             ("searchFilter", params.query.clone()),
-            ("pageSize", "20".to_owned()),
+            ("index", params.offset.to_string()),
+            ("pageSize", page_size.to_string()),
         ]);
+        if params.project_type == super::ModProjectType::Modpack {
+            request = request.query(&[("sortField", "6"), ("sortOrder", "desc")]);
+        }
         if let Some(version) = &params.game_version {
             request = request.query(&[("gameVersion", version)]);
         }

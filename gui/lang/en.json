@@ -11,6 +11,8 @@
 
     "action.reconnect": "Reconnect to core",
     "action.refresh": "Refresh",
+    "action.previous_page": "Previous",
+    "action.next_page": "Next",
     "action.cancel": "Cancel",
     "action.new_instance": "New Instance",
     "action.import_modpack": "Import Modpack",
@@ -143,6 +145,7 @@
     "create.all_versions": "All versions",
     "create.all_loaders": "All loaders",
     "create.modpack_empty": "No matching modpacks.",
+    "create.page": "Page {page}",
     "create.create_install": "Create and Install",
     "create.game_version": "Game version:",
     "create.include_snapshots": "Include snapshots",

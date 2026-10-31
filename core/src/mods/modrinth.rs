@@ -39,15 +39,21 @@ impl ModProviderApi for Modrinth {
         if let Some(loader) = params.loader {
             facets.push(vec![format!("categories:{}", super::loader_name(loader))]);
         }
-        let response: SearchResponse = super::send_json(
-            self.client.get(format!("{}/search", self.base)).query(&[
-                ("query", params.query.clone()),
-                ("limit", "20".to_owned()),
-                ("facets", serde_json::to_string(&facets)?),
-            ]),
-            "modrinth",
-        )
-        .await?;
+        let page_size = if params.project_type == super::ModProjectType::Modpack {
+            super::MODPACK_SEARCH_BATCH_SIZE
+        } else {
+            20
+        };
+        let mut request = self.client.get(format!("{}/search", self.base)).query(&[
+            ("query", params.query.clone()),
+            ("offset", params.offset.to_string()),
+            ("limit", page_size.to_string()),
+            ("facets", serde_json::to_string(&facets)?),
+        ]);
+        if params.project_type == super::ModProjectType::Modpack {
+            request = request.query(&[("index", "downloads")]);
+        }
+        let response: SearchResponse = super::send_json(request, "modrinth").await?;
         Ok(response
             .hits
             .into_iter()

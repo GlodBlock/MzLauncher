@@ -28,6 +28,8 @@ use crate::store::Store;
 pub use curseforge::CurseForge;
 pub use modrinth::Modrinth;
 
+pub const MODPACK_SEARCH_BATCH_SIZE: usize = 50;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ModProjectType {
@@ -67,6 +69,8 @@ pub struct ModSearchParams {
     pub query: String,
     pub game_version: Option<String>,
     pub loader: Option<LoaderKind>,
+    #[serde(default)]
+    pub offset: usize,
     #[serde(default)]
     pub project_type: ModProjectType,
 }

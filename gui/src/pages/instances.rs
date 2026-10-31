@@ -66,9 +66,6 @@ impl MzApp {
             .filter(|instance| instance.name.to_lowercase().contains(&search))
             .cloned()
             .collect();
-        if instances.is_empty() {
-            ui.label(self.tr("instances.empty"));
-        }
         if new_instance_button(ui, &self.tr("action.new_instance")).clicked() {
             self.open_create_dialog();
         }
@@ -483,7 +480,7 @@ impl MzApp {
 
 fn new_instance_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
     let width = ui.available_width();
-    let (rect, response) = ui.allocate_exact_size(
+    let (rect, mut response) = ui.allocate_exact_size(
         egui::vec2(width, NEW_INSTANCE_BAR_HEIGHT),
         egui::Sense::click(),
     );
@@ -496,7 +493,7 @@ fn new_instance_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
         egui::StrokeKind::Inside,
     );
     let content_rect = rect.shrink(crate::layout::CARD_INNER_MARGIN as f32);
-    ui.allocate_new_ui(
+    let content_response = ui.allocate_new_ui(
         egui::UiBuilder::new()
             .max_rect(content_rect)
             .layout(egui::Layout::left_to_right(egui::Align::Center)),
@@ -506,13 +503,16 @@ fn new_instance_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
             } else {
                 ("light", &include_bytes!("../../assets/plus-light.png")[..])
             };
-            ui.add(
+            let icon_response = ui.add(
                 egui::Image::from_bytes(format!("bytes://new-instance-plus-{theme}.png"), png)
-                    .fit_to_exact_size(NEW_INSTANCE_ICON_SIZE),
+                    .fit_to_exact_size(NEW_INSTANCE_ICON_SIZE)
+                    .sense(egui::Sense::click()),
             );
-            ui.label(label);
+            let label_response = ui.add(egui::Label::new(label).sense(egui::Sense::click()));
+            icon_response.union(label_response)
         },
     );
+    response = response.union(content_response.inner);
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 

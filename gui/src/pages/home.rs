@@ -166,6 +166,23 @@ pub fn job_status_key(status: &str) -> &'static str {
     }
 }
 
+pub fn job_stage_key(stage: &str) -> &'static str {
+    match stage {
+        "downloading_modpack" => "job.stage.downloading_modpack",
+        "installing_game" => "job.stage.installing_game",
+        "installing_loader" => "job.stage.installing_loader",
+        "installing_java" => "job.stage.installing_java",
+        "importing_modpack" => "job.stage.importing_modpack",
+        "downloading" => "job.stage.downloading",
+        "queued" => "job.stage.queued",
+        "running" => "job.stage.running",
+        "succeeded" => "job.stage.succeeded",
+        "failed" => "job.stage.failed",
+        "cancelled" => "job.stage.cancelled",
+        _ => "job.stage.generic",
+    }
+}
+
 const JOB_PROGRESS_WIDTH: f32 = 140.0;
 
 pub fn job_row(ui: &mut egui::Ui, job: &crate::model::Job, app: &mut MzApp) {
@@ -194,7 +211,7 @@ pub fn job_row(ui: &mut egui::Ui, job: &crate::model::Job, app: &mut MzApp) {
                 );
             }
         }
-        ui.add(egui::Label::new(&job.progress.stage).wrap());
+        ui.add(egui::Label::new(app.tr(job_stage_key(&job.progress.stage))).wrap());
         if matches!(job.status.as_str(), "queued" | "running")
             && ui.small_button(app.tr("action.cancel")).clicked()
         {
@@ -219,5 +236,27 @@ pub fn job_row(ui: &mut egui::Ui, job: &crate::model::Job, app: &mut MzApp) {
                 suffix
             ),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_download_stages_to_translation_keys() {
+        assert_eq!(
+            job_stage_key("downloading_modpack"),
+            "job.stage.downloading_modpack"
+        );
+        assert_eq!(
+            job_stage_key("installing_loader"),
+            "job.stage.installing_loader"
+        );
+        assert_eq!(
+            job_stage_key("importing_modpack"),
+            "job.stage.importing_modpack"
+        );
+        assert_eq!(job_stage_key("unknown"), "job.stage.generic");
     }
 }

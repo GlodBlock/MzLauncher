@@ -140,8 +140,12 @@ impl ModpackBrowserService {
                     .join("modpack-archives")
                     .join(provider)
                     .join(format!("{}.{}", file.file_id, extension));
+                context.progress(crate::model::JobProgress {
+                    stage: "downloading_modpack".into(),
+                    ..crate::model::JobProgress::default()
+                })?;
                 self.downloader
-                    .download(
+                    .download_without_progress(
                         DownloadSpec {
                             url,
                             destination: path.clone(),

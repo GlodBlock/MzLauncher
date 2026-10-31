@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 
 use crate::app::{DetailTab, InstallingModpack, MzApp, NewInstanceState, NewInstanceTab, Page};
 use crate::model::{Instance, Job};
-use crate::pages::home::{job_status_key, loader_key, status_key};
+use crate::pages::home::{job_stage_key, job_status_key, loader_key, status_key};
 
 const INSTANCE_ICON_SIZE: egui::Vec2 = egui::Vec2::new(48.0, 48.0);
 const INSTANCE_ICON_GRASS_HEIGHT: f32 = 15.0;
@@ -223,7 +223,7 @@ impl MzApp {
                                 || self.tr("job.status.queued"),
                                 |job| {
                                     if job.status == "running" {
-                                        self.tr("status.installing")
+                                        self.tr(job_stage_key(&job.progress.stage))
                                     } else {
                                         self.tr(job_status_key(&job.status))
                                     }

@@ -254,6 +254,10 @@ impl InstanceService {
             self.java
                 .ensure(&java_requirement, instance.java_path.as_deref(), context)
                 .await?;
+            context.progress(crate::model::JobProgress {
+                stage: "installing_loader".into(),
+                ..crate::model::JobProgress::default()
+            })?;
             let profile = self
                 .loaders
                 .prepare(&instance, &java_requirement, context)

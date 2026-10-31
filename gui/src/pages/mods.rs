@@ -40,7 +40,6 @@ impl MzApp {
         });
         ui.horizontal(|ui| {
             let search_hint = self.tr("browser.search_hint");
-            let search_label = self.tr("browser.search");
             let spacing = ui.spacing().item_spacing.x;
             let spinner_width = if self.browser.searching {
                 ui.spacing().interact_size.y + spacing
@@ -48,16 +47,12 @@ impl MzApp {
                 0.0
             };
             let search_width = (ui.available_width()
-                - crate::layout::button_width(ui, &search_label)
+                - crate::layout::TOOLBAR_CONTROL_SIZE.x
                 - spacing
                 - spinner_width)
                 .max(0.0);
-            ui.add(
-                egui::TextEdit::singleline(&mut self.browser.query)
-                    .desired_width(search_width)
-                    .hint_text(search_hint),
-            );
-            if ui.button(search_label).clicked() {
+            crate::widgets::search_field(ui, &mut self.browser.query, search_hint, search_width);
+            if crate::widgets::search_button(ui, &self.tr("browser.search"), true).clicked() {
                 self.search_mods();
             }
             if self.browser.searching {

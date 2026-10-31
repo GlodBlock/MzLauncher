@@ -10,6 +10,7 @@ mod modpack_icons;
 mod pages;
 mod preferences;
 mod skin;
+mod widgets;
 
 use eframe::egui;
 use preferences::ThemePreference;

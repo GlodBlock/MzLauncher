@@ -8,12 +8,10 @@ use crate::pages::home::{job_status_key, loader_key, status_key};
 const INSTANCE_ICON_SIZE: egui::Vec2 = egui::Vec2::new(48.0, 48.0);
 const INSTANCE_ICON_GRASS_HEIGHT: f32 = 15.0;
 const INSTANCE_ROW_CONTENT_HEIGHT: f32 = 64.0;
-const INSTANCE_SEARCH_ICON_SIZE: egui::Vec2 = egui::Vec2::new(18.0, 18.0);
 const NEW_INSTANCE_BAR_HEIGHT: f32 = 48.0;
 const NEW_INSTANCE_ICON_SIZE: egui::Vec2 = egui::Vec2::new(18.0, 18.0);
 const NEW_INSTANCE_ICON_TEXT_GAP: f32 = 8.0;
-const RETRY_INSTALL_ICON_SIZE: egui::Vec2 = egui::Vec2::new(18.0, 18.0);
-const INSTALL_ACTION_SIZE: egui::Vec2 = crate::layout::SEARCH_CONTROL_SIZE;
+const INSTALL_ACTION_SIZE: egui::Vec2 = crate::layout::TOOLBAR_CONTROL_SIZE;
 
 impl MzApp {
     pub fn open_create_dialog(&mut self) {
@@ -52,29 +50,8 @@ impl MzApp {
             let spacing = ui.spacing().item_spacing.x;
             let search_width = (ui.available_width() - INSTALL_ACTION_SIZE.x - spacing).max(0.0);
             let search_hint = self.tr("instances.search_hint");
-            ui.add(
-                egui::TextEdit::singleline(&mut self.instance_search)
-                    .desired_width(search_width)
-                    .min_size(egui::vec2(search_width, INSTALL_ACTION_SIZE.y))
-                    .vertical_align(egui::Align::Center)
-                    .hint_text(search_hint),
-            );
-            let (theme, png) = if ui.visuals().dark_mode {
-                ("dark", &include_bytes!("../../assets/search-dark.png")[..])
-            } else {
-                (
-                    "light",
-                    &include_bytes!("../../assets/search-light.png")[..],
-                )
-            };
-            let image =
-                egui::Image::from_bytes(format!("bytes://instances-search-{theme}.png"), png)
-                    .fit_to_exact_size(INSTANCE_SEARCH_ICON_SIZE);
-            ui.add(
-                egui::Button::image(image)
-                    .min_size(INSTALL_ACTION_SIZE)
-                    .corner_radius(egui::CornerRadius::same(7)),
-            );
+            crate::widgets::search_field(ui, &mut self.instance_search, search_hint, search_width);
+            crate::widgets::search_button(ui, &self.tr("create.search"), true);
         });
         ui.add_space(crate::layout::CARD_LIST_GAP);
         let search = self.instance_search.to_lowercase();
@@ -270,30 +247,13 @@ impl MzApp {
                     } else if let Some(job) =
                         job.filter(|job| matches!(job.status.as_str(), "failed" | "interrupted"))
                     {
-                        let (theme, png) = if ui.visuals().dark_mode {
-                            (
-                                "dark",
-                                &include_bytes!("../../assets/rotate-right-dark.png")[..],
-                            )
-                        } else {
-                            (
-                                "light",
-                                &include_bytes!("../../assets/rotate-right-light.png")[..],
-                            )
-                        };
-                        let image = egui::Image::from_bytes(
-                            format!("bytes://retry-install-{theme}.png"),
-                            png,
+                        if crate::widgets::IconButton::new(
+                            "retry-install",
+                            include_bytes!("../../assets/rotate-right-light.png"),
+                            include_bytes!("../../assets/rotate-right-dark.png"),
                         )
-                        .fit_to_exact_size(RETRY_INSTALL_ICON_SIZE);
-                        if ui
-                            .add(
-                                egui::Button::image(image)
-                                    .min_size(INSTALL_ACTION_SIZE)
-                                    .corner_radius(egui::CornerRadius::same(7)),
-                            )
-                            .on_hover_text(self.tr("action.retry_install"))
-                            .clicked()
+                        .show(ui, &self.tr("action.retry_install"))
+                        .clicked()
                         {
                             retry = Some(job.id.clone());
                         }
@@ -706,13 +666,13 @@ impl MzApp {
 }
 
 fn new_instance_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
-    let (theme, png) = if ui.visuals().dark_mode {
-        ("dark", &include_bytes!("../../assets/plus-dark.png")[..])
-    } else {
-        ("light", &include_bytes!("../../assets/plus-light.png")[..])
-    };
-    let image = egui::Image::from_bytes(format!("bytes://new-instance-plus-{theme}.png"), png)
-        .fit_to_exact_size(NEW_INSTANCE_ICON_SIZE);
+    let image = crate::widgets::themed_image(
+        ui,
+        "new-instance-plus",
+        include_bytes!("../../assets/plus-light.png"),
+        include_bytes!("../../assets/plus-dark.png"),
+        NEW_INSTANCE_ICON_SIZE,
+    );
     ui.scope(|ui| {
         ui.spacing_mut().icon_spacing = NEW_INSTANCE_ICON_TEXT_GAP;
         ui.add(

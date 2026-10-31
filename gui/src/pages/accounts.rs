@@ -8,7 +8,6 @@ use crate::skin::show_character;
 const ACCOUNT_CARD_WIDTH: f32 = 240.0;
 const ACCOUNT_CARD_MIN_HEIGHT: f32 = 340.0;
 const ACCOUNT_CHARACTER_SIZE: egui::Vec2 = egui::Vec2::new(112.0, 190.0);
-const ACCOUNT_ACTION_ICON_SIZE: egui::Vec2 = egui::Vec2::new(18.0, 18.0);
 
 impl MzApp {
     pub fn accounts_page(&mut self, ui: &mut egui::Ui) {
@@ -96,15 +95,13 @@ impl MzApp {
                                     let leading_space =
                                         ((ui.available_width() - actions_width) / 2.0).max(0.0);
                                     ui.add_space(leading_space);
-                                    if ui
-                                        .add(account_action_button(
-                                            ui,
-                                            "refresh",
-                                            include_bytes!("../../assets/refresh-light.png"),
-                                            include_bytes!("../../assets/refresh-dark.png"),
-                                        ))
-                                        .on_hover_text(self.tr("accounts.refresh_credentials"))
-                                        .clicked()
+                                    if crate::widgets::IconButton::new(
+                                        "account-refresh",
+                                        include_bytes!("../../assets/refresh-light.png"),
+                                        include_bytes!("../../assets/refresh-dark.png"),
+                                    )
+                                    .show(ui, &self.tr("accounts.refresh_credentials"))
+                                    .clicked()
                                     {
                                         self.skins.invalidate(&account.id);
                                         self.call(
@@ -113,20 +110,14 @@ impl MzApp {
                                             Value::Null,
                                         );
                                     }
-                                    if ui
-                                        .add_enabled(
-                                            default_id.as_deref() != Some(account.id.as_str()),
-                                            account_action_button(
-                                                ui,
-                                                "set-default",
-                                                include_bytes!(
-                                                    "../../assets/set-default-light.png"
-                                                ),
-                                                include_bytes!("../../assets/set-default-dark.png"),
-                                            ),
-                                        )
-                                        .on_hover_text(self.tr("accounts.set_default"))
-                                        .clicked()
+                                    if crate::widgets::IconButton::new(
+                                        "account-set-default",
+                                        include_bytes!("../../assets/set-default-light.png"),
+                                        include_bytes!("../../assets/set-default-dark.png"),
+                                    )
+                                    .enabled(default_id.as_deref() != Some(account.id.as_str()))
+                                    .show(ui, &self.tr("accounts.set_default"))
+                                    .clicked()
                                     {
                                         self.call(
                                             "account.select",
@@ -135,15 +126,13 @@ impl MzApp {
                                         );
                                         self.call("settings.get", Value::Null, Value::Null);
                                     }
-                                    if ui
-                                        .add(account_action_button(
-                                            ui,
-                                            "logout",
-                                            include_bytes!("../../assets/logout-light.png"),
-                                            include_bytes!("../../assets/logout-dark.png"),
-                                        ))
-                                        .on_hover_text(self.tr("accounts.logout"))
-                                        .clicked()
+                                    if crate::widgets::IconButton::new(
+                                        "account-logout",
+                                        include_bytes!("../../assets/logout-light.png"),
+                                        include_bytes!("../../assets/logout-dark.png"),
+                                    )
+                                    .show(ui, &self.tr("accounts.logout"))
+                                    .clicked()
                                     {
                                         self.call(
                                             "account.logout",
@@ -236,25 +225,6 @@ fn add_account_actions_height(ui: &egui::Ui) -> f32 {
 
 fn account_actions_width(ui: &egui::Ui) -> f32 {
     let action_count = 3.0;
-    let button_width = ACCOUNT_ACTION_ICON_SIZE.x + ui.spacing().button_padding.x * 2.0;
-    button_width * action_count + ui.spacing().item_spacing.x * (action_count - 1.0)
-}
-
-fn account_action_button(
-    ui: &egui::Ui,
-    name: &str,
-    light_png: &'static [u8],
-    dark_png: &'static [u8],
-) -> egui::Button<'static> {
-    let (theme, png) = if ui.visuals().dark_mode {
-        ("dark", dark_png)
-    } else {
-        ("light", light_png)
-    };
-    let image = egui::Image::from_bytes(format!("bytes://account-{name}-{theme}.png"), png)
-        .fit_to_exact_size(ACCOUNT_ACTION_ICON_SIZE);
-    let button_side = ACCOUNT_ACTION_ICON_SIZE.x + 2.0 * ui.spacing().button_padding.x;
-    egui::Button::image(image)
-        .min_size(egui::Vec2::splat(button_side))
-        .corner_radius(egui::CornerRadius::same(7))
+    crate::layout::TOOLBAR_CONTROL_SIZE.x * action_count
+        + ui.spacing().item_spacing.x * (action_count - 1.0)
 }

@@ -9,7 +9,7 @@ const SIDEBAR_WIDTH: f32 = 180.0;
 const SOURCE_BUTTON_HEIGHT: f32 = 44.0;
 const FILTER_COMBO_WIDTH: f32 = 150.0;
 const CUSTOM_FIELD_WIDTH: f32 = 180.0;
-const ACTION_BUTTON_SIZE: egui::Vec2 = crate::layout::SEARCH_CONTROL_SIZE;
+const ACTION_BUTTON_SIZE: egui::Vec2 = crate::layout::TOOLBAR_CONTROL_SIZE;
 const MODPACK_ICON_SIZE: egui::Vec2 = egui::Vec2::new(56.0, 56.0);
 const MODPACK_ROW_HEIGHT: f32 = 76.0;
 const NEW_INSTANCE_WINDOW_SIZE: [f32; 2] = [1040.0, 700.0];
@@ -156,12 +156,11 @@ impl MzApp {
             egui::vec2(search_width, ACTION_BUTTON_SIZE.y),
         );
         let mut search_ui = ui.new_child(egui::UiBuilder::new().max_rect(search_rect));
-        let response = search_ui.add(
-            egui::TextEdit::singleline(&mut self.modpack_browser.query)
-                .desired_width(search_width)
-                .min_size(egui::vec2(search_width, ACTION_BUTTON_SIZE.y))
-                .vertical_align(egui::Align::Center)
-                .hint_text(search_hint),
+        let response = crate::widgets::search_field(
+            &mut search_ui,
+            &mut self.modpack_browser.query,
+            search_hint,
+            search_width,
         );
         if response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
             search = true;
@@ -833,57 +832,31 @@ fn action_icon_button(
     tooltip: &str,
     enabled: bool,
 ) -> egui::Response {
-    let (name, theme, bytes) = match (icon, ui.visuals().dark_mode) {
-        (ActionIcon::Download, false) => (
-            "download",
-            "light",
+    let (name, light_png, dark_png) = match icon {
+        ActionIcon::Download => (
+            "new-instance-download",
             &include_bytes!("../../assets/download-light.png")[..],
-        ),
-        (ActionIcon::Download, true) => (
-            "download",
-            "dark",
             &include_bytes!("../../assets/download-dark.png")[..],
         ),
-        (ActionIcon::Import, false) => (
-            "import",
-            "light",
+        ActionIcon::Import => (
+            "new-instance-import",
             &include_bytes!("../../assets/import-light.png")[..],
-        ),
-        (ActionIcon::Import, true) => (
-            "import",
-            "dark",
             &include_bytes!("../../assets/import-dark.png")[..],
         ),
-        (ActionIcon::Play, false) => (
-            "play",
-            "light",
+        ActionIcon::Play => (
+            "new-instance-play",
             &include_bytes!("../../assets/play-light.png")[..],
-        ),
-        (ActionIcon::Play, true) => (
-            "play",
-            "dark",
             &include_bytes!("../../assets/play-dark.png")[..],
         ),
-        (ActionIcon::Search, false) => (
-            "search",
-            "light",
+        ActionIcon::Search => (
+            "new-instance-search",
             &include_bytes!("../../assets/search-light.png")[..],
-        ),
-        (ActionIcon::Search, true) => (
-            "search",
-            "dark",
             &include_bytes!("../../assets/search-dark.png")[..],
         ),
     };
-    let image = egui::Image::from_bytes(format!("bytes://new-instance-{name}-{theme}.png"), bytes)
-        .fit_to_exact_size(egui::Vec2::splat(18.0));
-    ui.add_enabled(
-        enabled,
-        egui::Button::image(image)
-            .min_size(ACTION_BUTTON_SIZE)
-            .corner_radius(egui::CornerRadius::same(7)),
-    )
-    .on_hover_text(tooltip)
+    crate::widgets::IconButton::new(name, light_png, dark_png)
+        .enabled(enabled)
+        .show(ui, tooltip)
 }
 
 fn optional_filter(value: &str) -> Value {

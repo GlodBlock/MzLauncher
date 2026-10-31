@@ -810,8 +810,7 @@ fn select_displayed_installation_job<'a>(
     }
     jobs.iter().find(|job| {
         matches!(job.kind.as_str(), "import" | "install")
-            && (matches!(job.status.as_str(), "queued" | "running" | "cancelling")
-                || (job.kind == "import" && job.status == "interrupted"))
+            && matches!(job.status.as_str(), "queued" | "running" | "cancelling")
             && job.instance_id() == Some(instance_id)
     })
 }
@@ -954,5 +953,15 @@ mod tests {
 
         let selected = select_displayed_installation_job(&jobs, &installing, "instance-1").unwrap();
         assert_eq!(selected.id, "newer-job");
+    }
+
+    #[test]
+    fn completed_modpack_does_not_restore_an_older_interrupted_job() {
+        let interrupted = import_job("interrupted-job", "interrupted");
+        let mut succeeded = import_job("succeeded-job", "succeeded");
+        succeeded.result = Some(json!({"instanceId": "instance-1"}));
+        let jobs = vec![interrupted, succeeded];
+
+        assert!(select_displayed_installation_job(&jobs, &[], "instance-1").is_none());
     }
 }

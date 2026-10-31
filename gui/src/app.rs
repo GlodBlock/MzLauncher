@@ -663,21 +663,7 @@ impl MzApp {
             "job.list" => {
                 self.jobs = parse_list(result);
                 self.jobs.reverse();
-                let mut installs = Vec::new();
-                for install in self
-                    .jobs
-                    .iter()
-                    .rev()
-                    .filter_map(InstallingModpack::from_job)
-                {
-                    if !installs.iter().any(|existing: &InstallingModpack| {
-                        existing.project.provider == install.project.provider
-                            && existing.project.project_id == install.project.project_id
-                    }) {
-                        installs.push(install);
-                    }
-                }
-                self.installing_modpacks = installs;
+                self.installing_modpacks = restored_modpack_installs(&self.jobs);
                 self.request_missing_modpack_icons();
             }
             "settings.get" | "settings.update" | "settings.reset" => {
@@ -915,6 +901,32 @@ impl MzApp {
     }
 }
 
+fn restored_modpack_installs(jobs: &[Job]) -> Vec<InstallingModpack> {
+    let mut seen = std::collections::HashSet::new();
+    let mut installs = Vec::new();
+    for job in jobs.iter().rev().filter(|job| job.kind == "import") {
+        let Some(source) = job
+            .checkpoint
+            .as_ref()
+            .and_then(|value| value.get("modpack"))
+        else {
+            continue;
+        };
+        let (Some(provider), Some(project_id)) = (
+            source.get("provider").and_then(Value::as_str),
+            source.get("projectId").and_then(Value::as_str),
+        ) else {
+            continue;
+        };
+        if seen.insert((provider.to_owned(), project_id.to_owned())) {
+            if let Some(install) = InstallingModpack::from_job(job) {
+                installs.push(install);
+            }
+        }
+    }
+    installs
+}
+
 fn parse_list<T: serde::de::DeserializeOwned>(value: Value) -> Vec<T> {
     serde_json::from_value(value).unwrap_or_default()
 }
@@ -1110,5 +1122,39 @@ mod tests {
             install.project.icon_url.as_deref(),
             Some("https://cdn.example.com/atm10.gif")
         );
+    }
+
+    #[test]
+    fn successful_modpack_supersedes_older_interrupted_job() {
+        let interrupted: Job = serde_json::from_value(json!({
+            "id": "interrupted-job",
+            "kind": "import",
+            "status": "interrupted",
+            "target": null,
+            "progress": {
+                "stage": "downloading",
+                "completed": 10,
+                "total": 20,
+                "currentItem": null
+            },
+            "error": null,
+            "result": null,
+            "checkpoint": {
+                "instanceId": "instance-1",
+                "modpack": {
+                    "provider": "curse_forge",
+                    "projectId": "925200",
+                    "projectName": "All the Mods 10",
+                    "projectIconUrl": "https://cdn.example.com/atm10.gif"
+                }
+            }
+        }))
+        .unwrap();
+        let mut succeeded = interrupted.clone();
+        succeeded.id = "succeeded-job".into();
+        succeeded.status = "succeeded".into();
+
+        let installs = restored_modpack_installs(&[interrupted, succeeded]);
+        assert!(installs.is_empty());
     }
 }

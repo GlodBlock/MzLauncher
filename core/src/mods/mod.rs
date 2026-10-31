@@ -570,10 +570,14 @@ impl ModService {
 }
 
 pub fn compatible(file: &ModFile, instance: &Instance) -> bool {
+    let loader_matches = file.loaders.contains(&instance.loader)
+        || (file.provider == ModProvider::CurseForge
+            && file.loaders.is_empty()
+            && instance.loader == LoaderKind::Forge);
     file.game_versions
         .iter()
         .any(|version| version == &instance.game_version)
-        && file.loaders.contains(&instance.loader)
+        && loader_matches
 }
 
 pub fn loader_name(loader: LoaderKind) -> &'static str {

@@ -50,4 +50,18 @@ fn mod_candidates_require_game_version_and_loader_matches() {
     file.game_versions = vec!["1.21.1".into()];
     file.loaders = vec![LoaderKind::Forge];
     assert!(!compatible(&file, &instance));
+
+    file.provider = ModProvider::CurseForge;
+    file.loaders.clear();
+    assert!(!compatible(&file, &instance));
+    let forge_instance = Instance {
+        loader: LoaderKind::Forge,
+        ..instance
+    };
+    assert!(compatible(&file, &forge_instance));
+    file.provider = ModProvider::Modrinth;
+    assert!(!compatible(&file, &forge_instance));
+    file.provider = ModProvider::CurseForge;
+    file.loaders = vec![LoaderKind::Fabric];
+    assert!(!compatible(&file, &forge_instance));
 }

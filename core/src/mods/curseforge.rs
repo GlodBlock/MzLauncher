@@ -156,10 +156,7 @@ impl ModProviderApi for CurseForge {
     async fn files(&self, project_id: &str, instance: &Instance) -> CoreResult<Vec<ModFile>> {
         let response: DataResponse<Vec<FileResponse>> = super::send_json(
             self.request(reqwest::Method::GET, &format!("/mods/{project_id}/files"))?
-                .query(&[
-                    ("gameVersion", instance.game_version.as_str()),
-                    ("modLoaderType", loader_type(instance.loader)),
-                ]),
+                .query(&[("gameVersion", instance.game_version.as_str())]),
             "curseforge",
         )
         .await?;

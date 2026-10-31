@@ -177,50 +177,41 @@ fn searches_remote_modpacks_and_validates_installation() {
 }
 
 #[test]
-fn searches_modrinth_titles_by_downloads_in_pages() {
+fn searches_modrinth_by_downloads_with_provider_offsets() {
     use std::io::Read;
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = std::thread::spawn(move || {
-        for _ in 0..4 {
+        for expected_offset in [0, 20, 40] {
             let (mut stream, _) = listener.accept().unwrap();
             let mut request = [0_u8; 4096];
             let read = stream.read(&mut request).unwrap();
             let request = String::from_utf8_lossy(&request[..read]);
             assert!(request.starts_with("GET /v2/search?"), "{request}");
-            assert!(request.contains("limit=50"), "{request}");
+            assert!(request.contains("limit=21"), "{request}");
             assert!(request.contains("index=downloads"), "{request}");
-            let hits = if request.contains("offset=50") {
-                Vec::new()
-            } else {
-                (0..49)
-                    .map(|index| {
-                        json!({
-                            "project_id": index.to_string(),
-                            "title": format!("Matching Pack {index}"),
-                            "description": "Description",
-                            "author": "Author",
-                            "icon_url": null,
-                            "slug": format!("matching-{index}"),
-                            "downloads": 5000 - index,
-                            "versions": ["1.21.1"],
-                            "categories": ["fabric"]
-                        })
-                    })
-                    .chain(std::iter::once(json!({
-                        "project_id": "other",
-                        "title": "Other Pack",
-                        "description": "matching pack appears only in the description",
+            assert!(
+                request.contains(&format!("offset={expected_offset}")),
+                "{request}"
+            );
+            let count = if expected_offset == 40 { 9 } else { 21 };
+            let hits = (0..count)
+                .map(|index| {
+                    let project_index = expected_offset + index;
+                    json!({
+                        "project_id": project_index.to_string(),
+                        "title": format!("Matching Pack {project_index}"),
+                        "description": "Description",
                         "author": "Author",
                         "icon_url": null,
-                        "slug": "other",
-                        "downloads": 10000,
+                        "slug": format!("matching-{project_index}"),
+                        "downloads": 5000 - project_index,
                         "versions": ["1.21.1"],
                         "categories": ["fabric"]
-                    })))
-                    .collect()
-            };
+                    })
+                })
+                .collect::<Vec<_>>();
             let body = json!({"hits": hits}).to_string();
             write!(
                 stream,
@@ -279,11 +270,6 @@ fn searches_modrinth_titles_by_downloads_in_pages() {
         assert!(response["error"].is_null(), "search failed: {response}");
         assert_eq!(response["result"].as_array().unwrap().len(), expected_len);
         assert_eq!(response["result"][0]["name"], expected_name);
-        assert!(response["result"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|project| project["name"] != "Other Pack"));
     }
     client.call("stop", "system.shutdown", Value::Null);
     drop(client);

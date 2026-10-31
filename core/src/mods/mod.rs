@@ -28,7 +28,7 @@ use crate::store::Store;
 pub use curseforge::CurseForge;
 pub use modrinth::Modrinth;
 
-pub const MODPACK_SEARCH_BATCH_SIZE: usize = 50;
+pub const MODPACK_SEARCH_BATCH_SIZE: usize = 21;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]

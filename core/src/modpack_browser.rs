@@ -11,9 +11,7 @@ use crate::error::{CoreError, CoreResult};
 use crate::job::JobContext;
 use crate::model::{LoaderKind, ModProvider};
 use crate::modpack::{ModpackAnalysis, ModpackFormat, PackFile};
-use crate::mods::{
-    loader_name, ModProject, ModSearchParams, ModService, MODPACK_SEARCH_BATCH_SIZE,
-};
+use crate::mods::{loader_name, ModProject, ModSearchParams, ModService};
 use crate::paths::{safe_relative_path, AppPaths};
 
 const FTB_CACHE_TTL: Duration = Duration::from_secs(300);
@@ -72,36 +70,10 @@ impl ModpackBrowserService {
         match params.provider {
             ModProvider::Ftb => self.search_ftb(&params).await,
             ModProvider::Modrinth | ModProvider::CurseForge => {
-                self.search_api_modpacks(params).await
+                self.mods.search_modpacks(params).await
             }
             _ => Err(CoreError::InvalidInput("invalid modpack provider".into())),
         }
-    }
-
-    async fn search_api_modpacks(
-        &self,
-        mut params: ModSearchParams,
-    ) -> CoreResult<Vec<ModProject>> {
-        let requested_offset = params.offset;
-        let required = requested_offset.saturating_add(MAX_SEARCH_RESULTS + 1);
-        let query = params.query.clone();
-        let mut projects = Vec::new();
-        let mut provider_offset = 0;
-        loop {
-            params.offset = provider_offset;
-            let batch = self.mods.search_modpacks(params.clone()).await?;
-            let received = batch.len();
-            projects.extend(
-                batch
-                    .into_iter()
-                    .filter(|project| title_matches(&project.name, &query)),
-            );
-            if projects.len() >= required || received < MODPACK_SEARCH_BATCH_SIZE {
-                break;
-            }
-            provider_offset = provider_offset.saturating_add(received);
-        }
-        Ok(paginate_by_downloads(projects, requested_offset))
     }
 
     pub async fn fetch(

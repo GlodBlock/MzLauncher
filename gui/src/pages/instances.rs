@@ -419,6 +419,7 @@ impl MzApp {
         let mut confirm = false;
         let mut cancel = false;
         egui::Window::new(self.tr("delete.title"))
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .collapsible(false)
             .resizable(false)
             .show(ctx, |ui| {

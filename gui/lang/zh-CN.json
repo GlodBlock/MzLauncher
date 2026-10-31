@@ -51,7 +51,6 @@
     "notice.core_disconnected": "core 未连接",
     "notice.request_failed_log": "{method} 失败，详情已写入日志",
     "notice.instance_created": "实例 {name} 已创建",
-    "notice.job_submitted": "任务已提交，可在任务中心查看进度",
     "notice.import_failed": "整合包导入失败：{message}",
     "notice.instance_deleted": "实例已删除",
     "notice.saved": "已保存",

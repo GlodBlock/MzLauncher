@@ -751,7 +751,6 @@ impl MzApp {
                 if let Ok(job) = serde_json::from_value::<Job>(result) {
                     self.merge_job(job);
                 }
-                self.notice = Some(self.tr("notice.job_submitted"));
             }
             "instance.delete" => {
                 self.notice = Some(self.tr("notice.instance_deleted"));
@@ -887,7 +886,6 @@ impl MzApp {
                     self.installing_modpacks
                         .retain(|install| install.project.project_id != project);
                 }
-                self.notice = Some(self.tr("notice.job_submitted"));
             }
             "modpack.analyze" => {
                 self.modpack.analyzing = false;

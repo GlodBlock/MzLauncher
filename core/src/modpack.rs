@@ -492,13 +492,19 @@ impl ModpackService {
     ) -> CoreResult<()> {
         let mod_file = match file.provider {
             ModProvider::CurseForge => {
-                self.mods
+                let mut mod_file = self
+                    .mods
                     .provider_file(
                         ModProvider::CurseForge,
                         file.project_id.as_deref().unwrap_or_default(),
                         file.file_id.as_deref().unwrap_or_default(),
                     )
-                    .await?
+                    .await?;
+                if mod_file.url.is_none() {
+                    mod_file.url = Some(curseforge_download_url(file));
+                    mod_file.distribution_allowed = true;
+                }
+                mod_file
             }
             ModProvider::Modpack => ModFile {
                 provider: ModProvider::Modpack,
@@ -848,6 +854,14 @@ fn file_sha256(path: &Path) -> CoreResult<String> {
     Ok(hex::encode(hash.finalize()))
 }
 
+fn curseforge_download_url(file: &PackFile) -> String {
+    format!(
+        "https://www.curseforge.com/api/v1/mods/{}/files/{}/download",
+        file.project_id.as_deref().unwrap_or_default(),
+        file.file_id.as_deref().unwrap_or_default()
+    )
+}
+
 fn download_item_name(file: &PackFile, project_names: &HashMap<String, String>) -> String {
     file.project_id
         .as_ref()
@@ -899,6 +913,10 @@ mod tests {
         assert_eq!(
             download_item_name(&file, &HashMap::new()),
             "mods/238222-123456.jar"
+        );
+        assert_eq!(
+            curseforge_download_url(&file),
+            "https://www.curseforge.com/api/v1/mods/238222/files/123456/download"
         );
     }
 

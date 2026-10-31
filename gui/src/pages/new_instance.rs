@@ -127,8 +127,17 @@ impl MzApp {
         let mut search = false;
         let mut import = false;
         let spacing = ui.spacing().item_spacing.x;
-        let fixed_width = ACTION_BUTTON_SIZE.x * 2.0 + FILTER_COMBO_WIDTH * 2.0;
-        let search_width = (ui.available_width() - fixed_width - spacing * 4.0).max(0.0);
+        let busy = self.modpack_browser.searching || self.modpack.analyzing;
+        let busy_width = if busy {
+            ACTION_BUTTON_SIZE.x + spacing
+        } else {
+            0.0
+        };
+        let fields_width =
+            (ui.available_width() - ACTION_BUTTON_SIZE.x * 2.0 - spacing * 4.0 - busy_width)
+                .max(0.0);
+        let filter_width = (fields_width / 3.0).min(FILTER_COMBO_WIDTH);
+        let search_width = (fields_width - filter_width * 2.0).max(0.0);
         let search_hint = self.tr("create.search_hint");
         ui.horizontal(|ui| {
             ui.spacing_mut().interact_size.y = ACTION_BUTTON_SIZE.y;
@@ -145,8 +154,8 @@ impl MzApp {
             {
                 search = true;
             }
-            self.modpack_game_filter(ui, &mut search);
-            self.modpack_loader_filter(ui, &mut search);
+            self.modpack_game_filter(ui, filter_width, &mut search);
+            self.modpack_loader_filter(ui, filter_width, &mut search);
             if action_icon_button(
                 ui,
                 ActionIcon::Import,
@@ -157,8 +166,8 @@ impl MzApp {
             {
                 import = true;
             }
-            if self.modpack_browser.searching || self.modpack.analyzing {
-                ui.spinner();
+            if busy {
+                ui.add_sized(ACTION_BUTTON_SIZE, egui::Spinner::new());
             }
         });
         if search {
@@ -191,14 +200,14 @@ impl MzApp {
         }
     }
 
-    fn modpack_game_filter(&mut self, ui: &mut egui::Ui, changed: &mut bool) {
+    fn modpack_game_filter(&mut self, ui: &mut egui::Ui, width: f32, changed: &mut bool) {
         let selected = if self.modpack_browser.game_version.is_empty() {
             self.tr("create.all_versions")
         } else {
             self.modpack_browser.game_version.clone()
         };
         egui::ComboBox::from_id_salt(("new_instance_game_filter", &self.modpack_browser.provider))
-            .width(FILTER_COMBO_WIDTH)
+            .width(width)
             .truncate()
             .selected_text(selected)
             .show_ui(ui, |ui| {
@@ -227,7 +236,7 @@ impl MzApp {
             });
     }
 
-    fn modpack_loader_filter(&mut self, ui: &mut egui::Ui, changed: &mut bool) {
+    fn modpack_loader_filter(&mut self, ui: &mut egui::Ui, width: f32, changed: &mut bool) {
         let selected = if self.modpack_browser.loader.is_empty() {
             self.tr("create.all_loaders")
         } else {
@@ -237,7 +246,7 @@ impl MzApp {
             "new_instance_loader_filter",
             &self.modpack_browser.provider,
         ))
-        .width(FILTER_COMBO_WIDTH)
+        .width(width)
         .truncate()
         .selected_text(selected)
         .show_ui(ui, |ui| {

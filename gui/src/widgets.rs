@@ -81,3 +81,50 @@ pub fn search_button(ui: &mut egui::Ui, tooltip: &str, enabled: bool) -> egui::R
     .enabled(enabled)
     .show(ui, tooltip)
 }
+
+pub fn themed_progress_bar(
+    ui: &mut egui::Ui,
+    fraction: f32,
+    width: f32,
+    text: impl Into<String>,
+) -> egui::Response {
+    let fraction = fraction.clamp(0.0, 1.0);
+    let text = text.into();
+    let (fill, filled_text_color) = if ui.visuals().dark_mode {
+        (
+            egui::Color32::from_rgb(243, 244, 246),
+            egui::Color32::from_rgb(32, 36, 43),
+        )
+    } else {
+        (
+            egui::Color32::from_rgb(32, 36, 43),
+            egui::Color32::from_rgb(243, 244, 246),
+        )
+    };
+    let response = ui.add(
+        egui::ProgressBar::new(fraction)
+            .desired_width(width)
+            .fill(fill),
+    );
+    let rect = response.rect;
+    let font_id = egui::TextStyle::Body.resolve(ui.style());
+    ui.painter().with_clip_rect(rect).text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        text.clone(),
+        font_id.clone(),
+        ui.visuals().text_color(),
+    );
+    let filled_rect = egui::Rect::from_min_max(
+        rect.min,
+        egui::pos2(rect.min.x + rect.width() * fraction, rect.max.y),
+    );
+    ui.painter().with_clip_rect(filled_rect).text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        text,
+        font_id,
+        filled_text_color,
+    );
+    response
+}

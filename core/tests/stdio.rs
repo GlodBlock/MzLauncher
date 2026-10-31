@@ -67,7 +67,8 @@ fn core_process_performs_handshake_and_settings_roundtrip() {
     let shutdown = read_response(&mut stdout, "stop");
     assert!(shutdown["error"].is_null());
     assert!(child.wait().unwrap().success());
-    assert!(logs.join("core.log").is_file());
+    let log = std::fs::read(logs.join("core.log")).unwrap();
+    assert!(!log.contains(&0x1b), "core log contains ANSI escapes");
 }
 
 fn read_response(stdout: &mut impl BufRead, expected_id: &str) -> Value {

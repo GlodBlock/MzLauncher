@@ -45,14 +45,27 @@ impl MzApp {
             self.instance_detail(ui, &id);
             return;
         }
-        ui.horizontal(|ui| {
-            ui.heading(self.tr("instances.title"));
-            let spacing = ui.spacing().item_spacing.x;
-            let search_width = (ui.available_width() - INSTALL_ACTION_SIZE.x - spacing).max(0.0);
-            let search_hint = self.tr("instances.search_hint");
-            crate::widgets::search_field(ui, &mut self.instance_search, search_hint, search_width);
-            crate::widgets::search_button(ui, &self.tr("create.search"), true);
-        });
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), crate::layout::TOOLBAR_CONTROL_SIZE.y),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.heading(self.tr("instances.title"));
+                let spacing = ui.spacing().item_spacing.x;
+                let search_width = (ui.available_width()
+                    - INSTALL_ACTION_SIZE.x
+                    - spacing
+                    - crate::layout::CONTENT_TRAILING_RESERVE)
+                    .max(0.0);
+                let search_hint = self.tr("instances.search_hint");
+                crate::widgets::search_field(
+                    ui,
+                    &mut self.instance_search,
+                    search_hint,
+                    search_width,
+                );
+                crate::widgets::search_button(ui, &self.tr("create.search"), true);
+            },
+        );
         ui.add_space(crate::layout::CARD_LIST_GAP);
         let search = self.instance_search.to_lowercase();
         let installing: Vec<InstallingModpack> = self
@@ -186,8 +199,11 @@ impl MzApp {
                         instance_icon(ui, name);
                     }
                     let spacing = ui.spacing().item_spacing.x;
-                    let info_width =
-                        (ui.available_width() - INSTALL_ACTION_SIZE.x - spacing).max(0.0);
+                    let info_width = (ui.available_width()
+                        - INSTALL_ACTION_SIZE.x
+                        - spacing
+                        - crate::layout::CONTENT_TRAILING_RESERVE)
+                        .max(0.0);
                     ui.allocate_ui_with_layout(
                         egui::vec2(info_width, INSTANCE_ROW_CONTENT_HEIGHT),
                         egui::Layout::top_down(egui::Align::LEFT),
@@ -215,22 +231,11 @@ impl MzApp {
                             let text = fraction.map_or(status.clone(), |fraction| {
                                 format!("{status} · {:.0}%", fraction * 100.0)
                             });
-                            let (fill, text_color) = if ui.visuals().dark_mode {
-                                (
-                                    egui::Color32::from_rgb(243, 244, 246),
-                                    egui::Color32::from_rgb(32, 36, 43),
-                                )
-                            } else {
-                                (
-                                    egui::Color32::from_rgb(32, 36, 43),
-                                    egui::Color32::from_rgb(243, 244, 246),
-                                )
-                            };
-                            ui.add(
-                                egui::ProgressBar::new(fraction.unwrap_or(0.0))
-                                    .desired_width(info_width)
-                                    .fill(fill)
-                                    .text(egui::RichText::new(text).color(text_color)),
+                            crate::widgets::themed_progress_bar(
+                                ui,
+                                fraction.unwrap_or(0.0),
+                                info_width,
+                                text,
                             );
                         },
                     );
@@ -301,7 +306,8 @@ impl MzApp {
                     .map(|symbol| crate::layout::button_width(ui, *symbol))
                     .sum::<f32>()
                     + spacing * (action_symbols.len() - 1) as f32;
-                let info_width = (ui.available_width() - actions_width - spacing).max(0.0);
+                let info_width = (ui.available_width() - actions_width - spacing - crate::layout::CONTENT_TRAILING_RESERVE)
+                        .max(0.0);
                 ui.allocate_ui_with_layout(
                     egui::vec2(info_width, INSTANCE_ROW_CONTENT_HEIGHT),
                     egui::Layout::top_down(egui::Align::LEFT),

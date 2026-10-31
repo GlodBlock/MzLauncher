@@ -472,18 +472,20 @@ impl MzApp {
             .collapsible(false)
             .default_width(480.0)
             .show(ctx, |ui| {
+                ui.set_min_width(ui.available_width());
                 ui.label(egui::RichText::new(self.tr("install_details.current")).strong());
-                ui.label(current);
+                ui.add(egui::Label::new(current).wrap());
                 ui.separator();
                 ui.label(egui::RichText::new(self.tr("install_details.pending")).strong());
                 if job.progress.pending_items.is_empty() {
                     ui.label(self.tr("install_details.empty"));
                 } else {
                     egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
                         .max_height(240.0)
                         .show(ui, |ui| {
                             for item in &job.progress.pending_items {
-                                ui.label(item);
+                                ui.add(egui::Label::new(item).wrap());
                             }
                         });
                 }

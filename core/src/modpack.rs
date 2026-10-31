@@ -273,6 +273,17 @@ impl ModpackService {
             }
             return Err(error);
         }
+        let project_ids = analysis
+            .files
+            .iter()
+            .filter(|file| file.provider == ModProvider::CurseForge)
+            .filter_map(|file| file.project_id.clone())
+            .collect::<Vec<_>>();
+        let project_names = self
+            .mods
+            .curseforge_project_names(&project_ids)
+            .await
+            .unwrap_or_default();
         context.progress(crate::model::JobProgress::download_queue(
             "importing_modpack",
             0,
@@ -280,7 +291,7 @@ impl ModpackService {
             analysis
                 .files
                 .iter()
-                .map(|file| file.path.clone())
+                .map(|file| download_item_name(file, &project_names))
                 .collect(),
         ))?;
         let mut entries = Vec::new();
@@ -310,7 +321,7 @@ impl ModpackService {
                     .files
                     .iter()
                     .skip(entries.len())
-                    .map(|file| file.path.clone())
+                    .map(|file| download_item_name(file, &project_names))
                     .collect(),
             ))?;
         }
@@ -712,6 +723,14 @@ fn file_sha256(path: &Path) -> CoreResult<String> {
     Ok(hex::encode(hash.finalize()))
 }
 
+fn download_item_name(file: &PackFile, project_names: &HashMap<String, String>) -> String {
+    file.project_id
+        .as_ref()
+        .and_then(|id| project_names.get(id))
+        .cloned()
+        .unwrap_or_else(|| file.path.clone())
+}
+
 fn entry(
     file: &PackFile,
     status: ModpackEntryStatus,
@@ -726,4 +745,30 @@ fn entry(
 
 pub fn pack_file_name(file: &Path) -> Option<&str> {
     file.file_name().and_then(|name| name.to_str())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn download_items_prefer_project_names_with_path_fallback() {
+        let file = PackFile {
+            path: "mods/238222-123456.jar".into(),
+            provider: ModProvider::CurseForge,
+            project_id: Some("238222".into()),
+            file_id: Some("123456".into()),
+            url: None,
+            size: None,
+            sha1: None,
+            sha256: None,
+            required: true,
+        };
+        let names = HashMap::from([("238222".into(), "Just Enough Items".into())]);
+        assert_eq!(download_item_name(&file, &names), "Just Enough Items");
+        assert_eq!(
+            download_item_name(&file, &HashMap::new()),
+            "mods/238222-123456.jar"
+        );
+    }
 }

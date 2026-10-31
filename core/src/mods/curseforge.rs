@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -21,6 +23,30 @@ impl CurseForge {
             base: base.trim_end_matches('/').into(),
             credentials: CredentialStore::new(),
         })
+    }
+
+    pub async fn project_names(
+        &self,
+        project_ids: &[String],
+    ) -> CoreResult<HashMap<String, String>> {
+        let ids = project_ids
+            .iter()
+            .filter_map(|id| id.parse::<u64>().ok())
+            .collect::<Vec<_>>();
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let response: DataResponse<Vec<ProjectResponse>> = super::send_json(
+            self.request(reqwest::Method::POST, "/mods")?
+                .json(&serde_json::json!({"modIds": ids})),
+            "curseforge",
+        )
+        .await?;
+        Ok(response
+            .data
+            .into_iter()
+            .map(|project| (project.id.to_string(), project.name))
+            .collect())
     }
 
     fn request(&self, method: reqwest::Method, path: &str) -> CoreResult<reqwest::RequestBuilder> {

@@ -177,6 +177,13 @@ impl ModService {
         self.provider(provider)?.file(project_id, file_id).await
     }
 
+    pub async fn curseforge_project_names(
+        &self,
+        project_ids: &[String],
+    ) -> CoreResult<std::collections::HashMap<String, String>> {
+        self.curseforge.project_names(project_ids).await
+    }
+
     pub fn resolve<'a>(
         &'a self,
         instance_id: Uuid,

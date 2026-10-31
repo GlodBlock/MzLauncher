@@ -365,75 +365,79 @@ impl MzApp {
                             );
                         },
                     );
-                    let (primary_tooltip, primary_method) = if running {
-                        ("action.stop_game", "game.stop")
-                    } else if installed {
-                        ("action.launch_game", "game.launch")
-                    } else {
-                        ("action.prepare_install", "instance.install")
-                    };
-                    let primary = if running {
-                        ui.add(
-                            egui::Button::new("■")
-                                .min_size(INSTALL_ACTION_SIZE)
-                                .corner_radius(egui::CornerRadius::same(7)),
-                        )
-                        .on_hover_text(self.tr(primary_tooltip))
-                    } else if installed {
-                        crate::widgets::IconButton::new(
-                            "launch-instance",
-                            include_bytes!("../../assets/play-light.png"),
-                            include_bytes!("../../assets/play-dark.png"),
-                        )
-                        .show(ui, &self.tr(primary_tooltip))
-                    } else {
-                        crate::widgets::IconButton::new(
-                            "install-instance",
-                            include_bytes!("../../assets/download-light.png"),
-                            include_bytes!("../../assets/download-dark.png"),
-                        )
-                        .show(ui, &self.tr(primary_tooltip))
-                    };
-                    if primary.clicked() {
-                        self.call(
-                            primary_method,
-                            json!({"id": instance.id}),
-                            json!({"instanceId": instance.id}),
-                        );
-                    }
-                    if crate::widgets::IconButton::new(
-                        "configure-instance",
-                        include_bytes!("../../assets/settings-light.png"),
-                        include_bytes!("../../assets/settings-dark.png"),
-                    )
-                    .show(ui, &self.tr("action.configure"))
-                    .clicked()
-                    {
-                        self.selected_instance = Some(instance.id.clone());
-                        self.detail_tab = DetailTab::Overview;
-                    }
-                    let can_open = self.core_instance_dir.is_some();
-                    if crate::widgets::IconButton::new(
-                        "open-instance-directory",
-                        include_bytes!("../../assets/folder-open-light.png"),
-                        include_bytes!("../../assets/folder-open-dark.png"),
-                    )
-                    .enabled(can_open)
-                    .show(ui, &self.tr("action.open_directory"))
-                    .clicked()
-                    {
-                        if let Some(directory) = &self.core_instance_dir {
-                            let _ =
-                                open::that(std::path::PathBuf::from(directory).join(&instance.id));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if delete_instance_button(ui, &self.tr("action.delete_instance")).clicked()
+                        {
+                            self.confirm_delete = Some(crate::app::DeleteConfirmation {
+                                instance_id: Some(instance.id.clone()),
+                                job_id: None,
+                                name: instance.name.clone(),
+                            });
                         }
-                    }
-                    if delete_instance_button(ui, &self.tr("action.delete_instance")).clicked() {
-                        self.confirm_delete = Some(crate::app::DeleteConfirmation {
-                            instance_id: Some(instance.id.clone()),
-                            job_id: None,
-                            name: instance.name.clone(),
-                        });
-                    }
+                        let can_open = self.core_instance_dir.is_some();
+                        if crate::widgets::IconButton::new(
+                            "open-instance-directory",
+                            include_bytes!("../../assets/folder-open-light.png"),
+                            include_bytes!("../../assets/folder-open-dark.png"),
+                        )
+                        .enabled(can_open)
+                        .show(ui, &self.tr("action.open_directory"))
+                        .clicked()
+                        {
+                            if let Some(directory) = &self.core_instance_dir {
+                                let _ = open::that(
+                                    std::path::PathBuf::from(directory).join(&instance.id),
+                                );
+                            }
+                        }
+                        if crate::widgets::IconButton::new(
+                            "configure-instance",
+                            include_bytes!("../../assets/settings-light.png"),
+                            include_bytes!("../../assets/settings-dark.png"),
+                        )
+                        .show(ui, &self.tr("action.configure"))
+                        .clicked()
+                        {
+                            self.selected_instance = Some(instance.id.clone());
+                            self.detail_tab = DetailTab::Overview;
+                        }
+                        let (primary_tooltip, primary_method) = if running {
+                            ("action.stop_game", "game.stop")
+                        } else if installed {
+                            ("action.launch_game", "game.launch")
+                        } else {
+                            ("action.prepare_install", "instance.install")
+                        };
+                        let primary = if running {
+                            ui.add(
+                                egui::Button::new("■")
+                                    .min_size(INSTALL_ACTION_SIZE)
+                                    .corner_radius(egui::CornerRadius::same(7)),
+                            )
+                            .on_hover_text(self.tr(primary_tooltip))
+                        } else if installed {
+                            crate::widgets::IconButton::new(
+                                "launch-instance",
+                                include_bytes!("../../assets/play-light.png"),
+                                include_bytes!("../../assets/play-dark.png"),
+                            )
+                            .show(ui, &self.tr(primary_tooltip))
+                        } else {
+                            crate::widgets::IconButton::new(
+                                "install-instance",
+                                include_bytes!("../../assets/download-light.png"),
+                                include_bytes!("../../assets/download-dark.png"),
+                            )
+                            .show(ui, &self.tr(primary_tooltip))
+                        };
+                        if primary.clicked() {
+                            self.call(
+                                primary_method,
+                                json!({"id": instance.id}),
+                                json!({"instanceId": instance.id}),
+                            );
+                        }
+                    });
                 },
             );
         });

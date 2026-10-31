@@ -10,6 +10,8 @@ use crate::model::{Instance, LoaderKind, ModDependency, ModFile, ModProvider, Re
 
 use super::{ModProject, ModProviderApi, ModSearchParams};
 
+const PROJECT_NAME_BATCH_SIZE: usize = 50;
+
 pub struct CurseForge {
     client: reqwest::Client,
     base: String,
@@ -33,20 +35,22 @@ impl CurseForge {
             .iter()
             .filter_map(|id| id.parse::<u64>().ok())
             .collect::<Vec<_>>();
-        if ids.is_empty() {
-            return Ok(HashMap::new());
+        let mut names = HashMap::new();
+        for ids in ids.chunks(PROJECT_NAME_BATCH_SIZE) {
+            let response: DataResponse<Vec<ProjectResponse>> = super::send_json(
+                self.request(reqwest::Method::POST, "/mods")?
+                    .json(&serde_json::json!({"modIds": ids})),
+                "curseforge",
+            )
+            .await?;
+            names.extend(
+                response
+                    .data
+                    .into_iter()
+                    .map(|project| (project.id.to_string(), project.name)),
+            );
         }
-        let response: DataResponse<Vec<ProjectResponse>> = super::send_json(
-            self.request(reqwest::Method::POST, "/mods")?
-                .json(&serde_json::json!({"modIds": ids})),
-            "curseforge",
-        )
-        .await?;
-        Ok(response
-            .data
-            .into_iter()
-            .map(|project| (project.id.to_string(), project.name))
-            .collect())
+        Ok(names)
     }
 
     fn request(&self, method: reqwest::Method, path: &str) -> CoreResult<reqwest::RequestBuilder> {

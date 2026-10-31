@@ -543,7 +543,7 @@ impl ModpackService {
         };
         if file.path.starts_with("mods/") && file.path.ends_with(".jar") {
             self.mods
-                .install_without_progress(instance.id, mod_file, context)
+                .install_modpack_file(instance.id, mod_file, Some(context))
                 .await?;
         } else {
             let destination = self

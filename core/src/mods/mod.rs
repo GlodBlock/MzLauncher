@@ -256,13 +256,20 @@ impl ModService {
             .await
     }
 
-    pub async fn install_without_progress(
+    pub async fn install_modpack_file(
         &self,
         instance_id: Uuid,
         file: ModFile,
-        context: &JobContext,
-    ) -> CoreResult<Value> {
-        self.install_with_progress(instance_id, file, context, false)
+        context: Option<&JobContext>,
+    ) -> CoreResult<InstalledMod> {
+        let instance = self.store.instance(instance_id)?;
+        if !compatible(&file, &instance) {
+            return Err(CoreError::Conflict(format!(
+                "{} does not support {} / {:?}",
+                file.file_name, instance.game_version, instance.loader
+            )));
+        }
+        self.install_one(instance_id, file, true, context, false)
             .await
     }
 
@@ -751,6 +758,68 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].file.file_id, "new");
         server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn modpack_install_pins_files_without_resolving_dependencies() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = AppPaths::new(temp.path().join("data"));
+        paths.initialize().unwrap();
+        let store = Arc::new(Store::open(&paths).unwrap());
+        let instance = test_instance();
+        store.save_instance(&instance).unwrap();
+        let mods = paths.instance(instance.id).join("mods");
+        std::fs::create_dir_all(&mods).unwrap();
+        std::fs::write(mods.join("example.jar"), b"old").unwrap();
+        store
+            .save_mod(&InstalledMod {
+                id: Uuid::new_v4(),
+                instance_id: instance.id,
+                file: mod_file("old", None),
+                enabled: true,
+                managed: true,
+                installed_at: Utc::now(),
+            })
+            .unwrap();
+        let service = ModService::new(
+            paths.clone(),
+            store.clone(),
+            Downloader::new(crate::config::DownloadConfig::default()).unwrap(),
+            EndpointConfig::default(),
+        )
+        .unwrap();
+
+        let mut pinned = mod_file("pinned", Some("https://example.com/pinned.jar".into()));
+        pinned.dependencies.push(crate::model::ModDependency {
+            project_id: "not-in-the-pack".into(),
+            version_id: None,
+            required: true,
+        });
+        let cache = paths.content.join("mod-files/modrinth/pinned/example.jar");
+        std::fs::create_dir_all(cache.parent().unwrap()).unwrap();
+        std::fs::write(cache, b"new").unwrap();
+        let installed = service
+            .install_modpack_file(instance.id, pinned, None)
+            .await
+            .unwrap();
+        assert_eq!(installed.file.file_id, "pinned");
+        assert_eq!(std::fs::read(mods.join("example.jar")).unwrap(), b"new");
+        let records = store.mods(instance.id).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].file.file_id, "pinned");
+
+        let mut existing = mod_file("existing", Some("https://example.com/existing.jar".into()));
+        existing.project_id = "other-project".into();
+        existing.file_name = "other.jar".into();
+        let cache = paths.content.join("mod-files/modrinth/existing/other.jar");
+        std::fs::create_dir_all(cache.parent().unwrap()).unwrap();
+        std::fs::write(cache, b"new").unwrap();
+        std::fs::write(mods.join("other.jar"), b"new").unwrap();
+        service
+            .install_modpack_file(instance.id, existing, None)
+            .await
+            .unwrap();
+        assert_eq!(store.mods(instance.id).unwrap().len(), 2);
     }
 
     fn test_instance() -> Instance {

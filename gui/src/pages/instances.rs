@@ -444,12 +444,12 @@ impl MzApp {
                             ("action.prepare_install", "instance.install")
                         };
                         let primary = if running {
-                            ui.add(
-                                egui::Button::new("■")
-                                    .min_size(INSTALL_ACTION_SIZE)
-                                    .corner_radius(egui::CornerRadius::same(7)),
+                            crate::widgets::IconButton::new(
+                                "stop-instance",
+                                include_bytes!("../../assets/stop-light.png"),
+                                include_bytes!("../../assets/stop-dark.png"),
                             )
-                            .on_hover_text(self.tr(primary_tooltip))
+                            .show(ui, &self.tr(primary_tooltip))
                         } else if installed {
                             crate::widgets::IconButton::new(
                                 "launch-instance",

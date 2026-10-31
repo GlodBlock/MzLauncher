@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::Path;
 
+use futures_util::{stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -186,8 +187,15 @@ impl ModpackService {
         context: &JobContext,
     ) -> CoreResult<Value> {
         let analysis = self.analyze(path).await?;
-        self.import_analysis(analysis, Some(path.to_path_buf()), name, None, context)
-            .await
+        self.import_analysis(
+            analysis,
+            Some(path.to_path_buf()),
+            name,
+            None,
+            None,
+            context,
+        )
+        .await
     }
 
     pub async fn import_remote(
@@ -197,6 +205,10 @@ impl ModpackService {
     ) -> CoreResult<Value> {
         let name = params.name.clone();
         let instance_id = params.instance_id;
+        let resume = match instance_id {
+            Some(id) => self.resume_checkpoint(id, context.id())?,
+            None => None,
+        };
         match self.browser.fetch(&params, context).await? {
             crate::modpack_browser::RemoteModpack::Archive { path, name: source } => {
                 let analysis = self.analyze(&path).await?;
@@ -205,15 +217,33 @@ impl ModpackService {
                     Some(path),
                     name.or(Some(source)),
                     instance_id,
+                    resume,
                     context,
                 )
                 .await
             }
             crate::modpack_browser::RemoteModpack::Prepared(analysis) => {
-                self.import_analysis(analysis, None, name, instance_id, context)
+                self.import_analysis(analysis, None, name, instance_id, resume, context)
                     .await
             }
         }
+    }
+
+    fn resume_checkpoint(
+        &self,
+        instance_id: uuid::Uuid,
+        current_job_id: uuid::Uuid,
+    ) -> CoreResult<Option<Value>> {
+        let instance_id = instance_id.to_string();
+        Ok(self
+            .store
+            .jobs()?
+            .into_iter()
+            .filter(|job| job.kind == crate::model::JobKind::Import && job.id != current_job_id)
+            .filter_map(|job| job.checkpoint)
+            .find(|checkpoint| {
+                checkpoint.get("instanceId").and_then(Value::as_str) == Some(instance_id.as_str())
+            }))
     }
 
     async fn import_analysis(
@@ -222,6 +252,7 @@ impl ModpackService {
         archive: Option<std::path::PathBuf>,
         name: Option<String>,
         existing_instance_id: Option<uuid::Uuid>,
+        resume: Option<Value>,
         context: &JobContext,
     ) -> CoreResult<Value> {
         let existing = match existing_instance_id {
@@ -267,14 +298,44 @@ impl ModpackService {
                 serde_json::json!(analysis.source_sha256),
             );
         })?;
-        if let Err(error) = self.instances.install(instance.id, context).await {
-            if !resuming {
-                let _ = self.instances.delete(instance.id).await;
+        let game_ready = resume
+            .as_ref()
+            .and_then(|checkpoint| checkpoint.get("gameReady"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if !game_ready {
+            if let Err(error) = self.instances.install(instance.id, context).await {
+                if !resuming {
+                    let _ = self.instances.delete(instance.id).await;
+                }
+                return Err(error);
             }
-            return Err(error);
+        } else if instance.install_status != InstallStatus::Installed {
+            self.instances
+                .set_install_status(instance.id, InstallStatus::Installed)?;
         }
-        let project_ids = analysis
-            .files
+        let previous_files = resume
+            .as_ref()
+            .and_then(|checkpoint| checkpoint.get("modpackFiles"))
+            .filter(|files| files.is_object())
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+        context.update_checkpoint(|checkpoint| {
+            checkpoint.insert("gameReady".into(), Value::Bool(true));
+            checkpoint.insert("modpackFiles".into(), previous_files);
+        })?;
+
+        let mut entries = Vec::new();
+        let mut pending = Vec::new();
+        for file in &analysis.files {
+            match resumed_file_status(resume.as_ref(), &file.path) {
+                Some(status @ (ModpackEntryStatus::Imported | ModpackEntryStatus::Skipped)) => {
+                    entries.push(entry(file, status, None))
+                }
+                _ => pending.push(file.clone()),
+            }
+        }
+        let project_ids = pending
             .iter()
             .filter(|file| file.provider == ModProvider::CurseForge)
             .filter_map(|file| file.project_id.clone())
@@ -286,33 +347,54 @@ impl ModpackService {
             .unwrap_or_default();
         context.progress(crate::model::JobProgress::download_queue(
             "importing_modpack",
-            0,
+            entries.len() as u64,
             Some(analysis.files.len() as u64),
-            analysis
-                .files
+            pending
                 .iter()
                 .map(|file| download_item_name(file, &project_names))
                 .collect(),
         ))?;
-        let mut entries = Vec::new();
-        for file in &analysis.files {
-            context.check_cancelled()?;
-            let result = if !file.required {
-                entry(file, ModpackEntryStatus::Skipped, None)
-            } else {
-                match self.import_file(&instance, file, context).await {
-                    Ok(()) => entry(file, ModpackEntryStatus::Imported, None),
-                    Err(error) => {
-                        let status = if matches!(error, CoreError::Forbidden(_)) {
-                            ModpackEntryStatus::RequiresManualDownload
-                        } else {
-                            ModpackEntryStatus::Failed
-                        };
-                        entry(file, status, Some(error.to_string()))
+        let mut downloads = stream::iter(pending.into_iter().map(|file| {
+            let instance = instance.clone();
+            async move {
+                context.check_cancelled()?;
+                let result = if !file.required {
+                    Ok(entry(&file, ModpackEntryStatus::Skipped, None))
+                } else {
+                    match self.import_file(&instance, &file, context).await {
+                        Ok(()) => Ok(entry(&file, ModpackEntryStatus::Imported, None)),
+                        Err(error) if error.is_cancelled() => Err(error),
+                        Err(error) => {
+                            let status = if matches!(error, CoreError::Forbidden(_)) {
+                                ModpackEntryStatus::RequiresManualDownload
+                            } else {
+                                ModpackEntryStatus::Failed
+                            };
+                            Ok(entry(&file, status, Some(error.to_string())))
+                        }
                     }
-                }
-            };
+                };
+                Ok::<_, CoreError>((file, result))
+            }
+        }))
+        .buffer_unordered(4);
+        while let Some(result) = downloads.next().await {
+            let (file, result) = result?;
+            let result = result?;
+            let status = result.status;
             entries.push(result);
+            context.update_checkpoint(|checkpoint| {
+                let files = checkpoint
+                    .entry("modpackFiles")
+                    .or_insert_with(|| serde_json::json!({}));
+                if !files.is_object() {
+                    *files = serde_json::json!({});
+                }
+                files
+                    .as_object_mut()
+                    .expect("modpack file state must be an object")
+                    .insert(file.path.clone(), serde_json::to_value(status).unwrap());
+            })?;
             context.progress(crate::model::JobProgress::download_queue(
                 "importing_modpack",
                 entries.len() as u64,
@@ -731,6 +813,11 @@ fn download_item_name(file: &PackFile, project_names: &HashMap<String, String>) 
         .unwrap_or_else(|| file.path.clone())
 }
 
+fn resumed_file_status(resume: Option<&Value>, path: &str) -> Option<ModpackEntryStatus> {
+    let status = resume?.get("modpackFiles")?.get(path)?;
+    serde_json::from_value(status.clone()).ok()
+}
+
 fn entry(
     file: &PackFile,
     status: ModpackEntryStatus,
@@ -770,5 +857,24 @@ mod tests {
             download_item_name(&file, &HashMap::new()),
             "mods/238222-123456.jar"
         );
+    }
+
+    #[test]
+    fn restores_completed_modpack_file_states() {
+        let checkpoint = serde_json::json!({
+            "modpackFiles": {
+                "mods/done.jar": "imported",
+                "mods/retry.jar": "failed"
+            }
+        });
+        assert_eq!(
+            resumed_file_status(Some(&checkpoint), "mods/done.jar"),
+            Some(ModpackEntryStatus::Imported)
+        );
+        assert_eq!(
+            resumed_file_status(Some(&checkpoint), "mods/retry.jar"),
+            Some(ModpackEntryStatus::Failed)
+        );
+        assert_eq!(resumed_file_status(Some(&checkpoint), "mods/new.jar"), None);
     }
 }

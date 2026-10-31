@@ -14,9 +14,9 @@ const MODPACK_ICON_SIZE: egui::Vec2 = egui::Vec2::new(56.0, 56.0);
 const MODPACK_ROW_HEIGHT: f32 = 76.0;
 const NEW_INSTANCE_WINDOW_SIZE: [f32; 2] = [1040.0, 700.0];
 const NEW_INSTANCE_MIN_WINDOW_SIZE: [f32; 2] = [760.0, 520.0];
-const MODPACK_VERSION_WINDOW_SIZE: [f32; 2] = [520.0, 220.0];
-const MODPACK_VERSION_MIN_WINDOW_SIZE: [f32; 2] = [420.0, 180.0];
-const MODPACK_VERSION_MENU_MAX_HEIGHT: f32 = 320.0;
+const MODPACK_VERSION_WINDOW_SIZE: [f32; 2] = [520.0, 360.0];
+const MODPACK_VERSION_MIN_WINDOW_SIZE: [f32; 2] = [420.0, 240.0];
+const MODPACK_VERSION_ACTIONS_HEIGHT: f32 = 64.0;
 
 impl MzApp {
     pub fn new_instance_window(&mut self, ctx: &egui::Context) {
@@ -74,26 +74,27 @@ impl MzApp {
             egui::ViewportId::from_hash_of("modpack_version_window"),
             builder,
             |ctx, _class| {
-                egui::TopBottomPanel::bottom("modpack_version_actions").show(ctx, |ui| {
-                    ui.add_space(crate::layout::SECTION_GAP);
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .add_enabled(
-                                !selection.loading && selection.selected.is_some(),
-                                egui::Button::new(self.tr("action.install")),
-                            )
-                            .clicked()
-                        {
-                            install = selection
-                                .selected
-                                .clone()
-                                .map(|file_id| (selection.project.clone(), file_id));
-                        }
-                        if ui.button(self.tr("action.cancel")).clicked() {
-                            close = true;
-                        }
+                egui::TopBottomPanel::bottom("modpack_version_actions")
+                    .exact_height(MODPACK_VERSION_ACTIONS_HEIGHT)
+                    .show(ctx, |ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui
+                                .add_enabled(
+                                    !selection.loading && selection.selected.is_some(),
+                                    egui::Button::new(self.tr("action.install")),
+                                )
+                                .clicked()
+                            {
+                                install = selection
+                                    .selected
+                                    .clone()
+                                    .map(|file_id| (selection.project.clone(), file_id));
+                            }
+                            if ui.button(self.tr("action.cancel")).clicked() {
+                                close = true;
+                            }
+                        });
                     });
-                });
                 egui::CentralPanel::default().show(ctx, |ui| {
                     ui.heading(&selection.project.name);
                     ui.add_space(crate::layout::SECTION_GAP);
@@ -109,9 +110,13 @@ impl MzApp {
                             .find(|version| Some(&version.file_id) == selected.as_ref())
                             .map(|version| version.version_name.clone())
                             .unwrap_or_else(|| self.tr("common.select"));
+                        let menu_height = (ui.available_height()
+                            - ui.spacing().interact_size.y
+                            - crate::layout::SECTION_GAP)
+                            .max(0.0);
                         egui::ComboBox::from_id_salt("modpack_version_selection")
                             .width(ui.available_width())
-                            .height(MODPACK_VERSION_MENU_MAX_HEIGHT)
+                            .height(menu_height)
                             .truncate()
                             .selected_text(selected_name)
                             .show_ui(ui, |ui| {

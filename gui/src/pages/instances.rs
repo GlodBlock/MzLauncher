@@ -327,11 +327,9 @@ impl MzApp {
                 |ui| {
                     self.paint_instance_icon(ui, &instance.name, project.as_ref());
                     let spacing = ui.spacing().item_spacing.x;
-                    let info_width = (ui.available_width()
-                        - INSTALL_ACTION_SIZE.x * 4.0
-                        - spacing * 4.0
-                        - crate::layout::CONTENT_TRAILING_RESERVE)
-                        .max(0.0);
+                    let info_width =
+                        (ui.available_width() - INSTALL_ACTION_SIZE.x * 4.0 - spacing * 4.0)
+                            .max(0.0);
                     ui.allocate_ui_with_layout(
                         egui::vec2(info_width, INSTANCE_ROW_CONTENT_HEIGHT),
                         egui::Layout::top_down(egui::Align::LEFT),

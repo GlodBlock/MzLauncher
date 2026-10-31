@@ -17,6 +17,7 @@
     "action.new_instance": "新建实例",
     "action.import_modpack": "导入整合包",
     "action.details": "详情",
+    "action.configure": "配置",
     "action.stop": "停止",
     "action.launch": "启动",
     "action.install_repair": "安装 / 修复",

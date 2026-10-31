@@ -125,24 +125,8 @@ impl InstallingModpack {
             return None;
         }
         let source = job.checkpoint.as_ref()?.get("modpack")?;
-        let project_id = source.get("projectId")?.as_str()?.to_owned();
-        let name = source.get("projectName")?.as_str()?.to_owned();
         Some(Self {
-            project: ModProject {
-                provider: source.get("provider")?.as_str()?.to_owned(),
-                project_id,
-                name,
-                summary: String::new(),
-                author: String::new(),
-                icon_url: source
-                    .get("projectIconUrl")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned),
-                page_url: None,
-                downloads: 0,
-                game_versions: Vec::new(),
-                loaders: Vec::new(),
-            },
+            project: Self::project_from_job(job)?,
             game_version: source
                 .get("gameVersion")
                 .and_then(Value::as_str)
@@ -155,6 +139,25 @@ impl InstallingModpack {
                 .to_owned(),
             job_id: Some(job.id.clone()),
             instance_id: job.instance_id().map(str::to_owned),
+        })
+    }
+
+    pub(crate) fn project_from_job(job: &Job) -> Option<ModProject> {
+        let source = job.checkpoint.as_ref()?.get("modpack")?;
+        Some(ModProject {
+            provider: source.get("provider")?.as_str()?.to_owned(),
+            project_id: source.get("projectId")?.as_str()?.to_owned(),
+            name: source.get("projectName")?.as_str()?.to_owned(),
+            summary: String::new(),
+            author: String::new(),
+            icon_url: source
+                .get("projectIconUrl")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            page_url: None,
+            downloads: 0,
+            game_versions: Vec::new(),
+            loaders: Vec::new(),
         })
     }
 }
@@ -378,6 +381,12 @@ impl MzApp {
     }
 
     fn request_missing_modpack_icons(&mut self) {
+        let completed_projects: Vec<ModProject> = self
+            .jobs
+            .iter()
+            .filter(|job| job.kind == "import" && job.status == "succeeded")
+            .filter_map(InstallingModpack::project_from_job)
+            .collect();
         let requests: Vec<(String, String)> = self
             .modpack_browser
             .results
@@ -387,6 +396,7 @@ impl MzApp {
                     .iter()
                     .map(|install| &install.project),
             )
+            .chain(completed_projects.iter())
             .filter_map(|project| {
                 let url = project.icon_url.as_deref()?;
                 if url.trim().is_empty() {
@@ -1120,6 +1130,13 @@ mod tests {
         assert_eq!(install.loader, "neo_forge");
         assert_eq!(
             install.project.icon_url.as_deref(),
+            Some("https://cdn.example.com/atm10.gif")
+        );
+        let mut succeeded = job.clone();
+        succeeded.status = "succeeded".into();
+        let project = InstallingModpack::project_from_job(&succeeded).unwrap();
+        assert_eq!(
+            project.icon_url.as_deref(),
             Some("https://cdn.example.com/atm10.gif")
         );
     }

@@ -17,6 +17,7 @@
     "action.new_instance": "New Instance",
     "action.import_modpack": "Import Modpack",
     "action.details": "Details",
+    "action.configure": "Configure",
     "action.stop": "Stop",
     "action.launch": "Launch",
     "action.install_repair": "Install / Repair",

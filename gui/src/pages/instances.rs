@@ -165,6 +165,26 @@ impl MzApp {
         format!("{} · {}", game_version, self.tr(loader_key(loader)))
     }
 
+    fn paint_instance_icon(
+        &mut self,
+        ui: &mut egui::Ui,
+        name: &str,
+        project: Option<&crate::model::ModProject>,
+    ) {
+        let texture = project.and_then(|project| {
+            self.modpack_icons
+                .texture(ui.ctx(), &crate::app::modpack_icon_key(project))
+        });
+        if let Some(texture) = texture {
+            let (rect, _) = ui.allocate_exact_size(INSTANCE_ICON_SIZE, egui::Sense::hover());
+            egui::Image::new((texture.id(), INSTANCE_ICON_SIZE))
+                .corner_radius(egui::CornerRadius::same(8))
+                .paint_at(ui, rect);
+        } else {
+            instance_icon(ui, name);
+        }
+    }
+
     fn installing_row(
         &mut self,
         ui: &mut egui::Ui,
@@ -183,19 +203,7 @@ impl MzApp {
                 egui::vec2(width, INSTANCE_ROW_CONTENT_HEIGHT),
                 egui::Layout::left_to_right(egui::Align::Center),
                 |ui| {
-                    let texture = project.and_then(|project| {
-                        self.modpack_icons
-                            .texture(ui.ctx(), &crate::app::modpack_icon_key(project))
-                    });
-                    if let Some(texture) = texture {
-                        let (rect, _) =
-                            ui.allocate_exact_size(INSTANCE_ICON_SIZE, egui::Sense::hover());
-                        egui::Image::new((texture.id(), INSTANCE_ICON_SIZE))
-                            .corner_radius(egui::CornerRadius::same(8))
-                            .paint_at(ui, rect);
-                    } else {
-                        instance_icon(ui, name);
-                    }
+                    self.paint_instance_icon(ui, name, project);
                     let spacing = ui.spacing().item_spacing.x;
                     let info_width = (ui.available_width()
                         - INSTALL_ACTION_SIZE.x * 3.0
@@ -299,119 +307,137 @@ impl MzApp {
             self.installing_row(ui, &instance.name, &version, project.as_ref(), Some(&job));
             return;
         }
+        let project = self
+            .jobs
+            .iter()
+            .filter(|job| job.kind == "import" && job.status == "succeeded")
+            .find(|job| job.instance_id() == Some(instance.id.as_str()))
+            .and_then(InstallingModpack::project_from_job);
+        let running = matches!(
+            self.games.get(&instance.id).map(String::as_str),
+            Some("running" | "starting")
+        );
+        let installed = instance.install_status == "installed";
         crate::card_frame(ui).show(ui, |ui| {
             let width = ui.available_width();
             ui.set_min_width(width);
-            let running = matches!(
-                self.games.get(&instance.id).map(String::as_str),
-                Some("running" | "starting")
-            );
-            let installed = instance.install_status == "installed";
-            let (primary_symbol, primary_tooltip, primary_method) = if running {
-                ("■", "action.stop_game", "game.stop")
-            } else if installed {
-                ("▶", "action.launch_game", "game.launch")
-            } else {
-                ("⇩", "action.prepare_install", "instance.install")
-            };
-            ui.horizontal(|ui| {
-                instance_icon(ui, &instance.name);
-                let spacing = ui.spacing().item_spacing.x;
-                let action_symbols = [primary_symbol, "⚙", "↗", "⋯"];
-                let actions_width = action_symbols
-                    .iter()
-                    .map(|symbol| crate::layout::button_width(ui, *symbol))
-                    .sum::<f32>()
-                    + INSTALL_ACTION_SIZE.x
-                    + spacing * action_symbols.len() as f32;
-                let info_width = (ui.available_width() - actions_width - spacing - crate::layout::CONTENT_TRAILING_RESERVE)
+            ui.allocate_ui_with_layout(
+                egui::vec2(width, INSTANCE_ROW_CONTENT_HEIGHT),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    self.paint_instance_icon(ui, &instance.name, project.as_ref());
+                    let spacing = ui.spacing().item_spacing.x;
+                    let info_width = (ui.available_width()
+                        - INSTALL_ACTION_SIZE.x * 4.0
+                        - spacing * 4.0
+                        - crate::layout::CONTENT_TRAILING_RESERVE)
                         .max(0.0);
-                ui.allocate_ui_with_layout(
-                    egui::vec2(info_width, INSTANCE_ROW_CONTENT_HEIGHT),
-                    egui::Layout::top_down(egui::Align::LEFT),
-                    |ui| {
-                        ui.add(
-                            egui::Label::new(
-                                egui::RichText::new(&instance.name).size(17.0).strong(),
-                            )
-                            .truncate(),
-                        );
-                        ui.add(egui::Label::new(version).truncate());
-                        let status = self.tr(status_key(
-                            &instance.install_status,
-                            self.games.get(&instance.id).map(String::as_str),
-                        ));
-                        let last = self.trf(
-                            "instances.last_launch",
-                            &[("time", &format_last_launch(instance.last_launched_at.as_deref()))],
-                        );
-                        let played = self.trf(
-                            "instances.play_time",
-                            &[("time", &format_play_time(instance.total_play_time_ms))],
-                        );
-                        ui.add(
-                            egui::Label::new(
-                                egui::RichText::new(format!("{status} · {last} · {played}")).small(),
-                            )
-                            .truncate(),
-                        );
-                    },
-                );
-                if ui
-                    .button(primary_symbol)
-                    .on_hover_text(self.tr(primary_tooltip))
-                    .clicked()
-                {
-                    self.call(
-                        primary_method,
-                        json!({"id": instance.id}),
-                        json!({"instanceId": instance.id}),
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(info_width, INSTANCE_ROW_CONTENT_HEIGHT),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| {
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(&instance.name).size(17.0).strong(),
+                                )
+                                .truncate(),
+                            );
+                            ui.add(egui::Label::new(version).truncate());
+                            let status = self.tr(status_key(
+                                &instance.install_status,
+                                self.games.get(&instance.id).map(String::as_str),
+                            ));
+                            let last = self.trf(
+                                "instances.last_launch",
+                                &[(
+                                    "time",
+                                    &format_last_launch(instance.last_launched_at.as_deref()),
+                                )],
+                            );
+                            let played = self.trf(
+                                "instances.play_time",
+                                &[("time", &format_play_time(instance.total_play_time_ms))],
+                            );
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(format!("{status} · {last} · {played}"))
+                                        .small(),
+                                )
+                                .truncate(),
+                            );
+                        },
                     );
-                }
-                if ui
-                    .button("⚙")
-                    .on_hover_text(self.tr("action.details"))
-                    .clicked()
-                {
-                    self.selected_instance = Some(instance.id.clone());
-                    self.detail_tab = DetailTab::Overview;
-                }
-                let can_open = self.core_instance_dir.is_some();
-                if ui
-                    .add_enabled(can_open, egui::Button::new("↗"))
-                    .on_hover_text(self.tr("action.open_directory"))
-                    .clicked()
-                {
-                    if let Some(directory) = &self.core_instance_dir {
-                        let _ = open::that(std::path::PathBuf::from(directory).join(&instance.id));
-                    }
-                }
-                ui.menu_button("⋯", |ui| {
-                    if ui.button(self.tr("action.repair")).clicked() {
+                    let (primary_tooltip, primary_method) = if running {
+                        ("action.stop_game", "game.stop")
+                    } else if installed {
+                        ("action.launch_game", "game.launch")
+                    } else {
+                        ("action.prepare_install", "instance.install")
+                    };
+                    let primary = if running {
+                        ui.add(
+                            egui::Button::new("■")
+                                .min_size(INSTALL_ACTION_SIZE)
+                                .corner_radius(egui::CornerRadius::same(7)),
+                        )
+                        .on_hover_text(self.tr(primary_tooltip))
+                    } else if installed {
+                        crate::widgets::IconButton::new(
+                            "launch-instance",
+                            include_bytes!("../../assets/play-light.png"),
+                            include_bytes!("../../assets/play-dark.png"),
+                        )
+                        .show(ui, &self.tr(primary_tooltip))
+                    } else {
+                        crate::widgets::IconButton::new(
+                            "install-instance",
+                            include_bytes!("../../assets/download-light.png"),
+                            include_bytes!("../../assets/download-dark.png"),
+                        )
+                        .show(ui, &self.tr(primary_tooltip))
+                    };
+                    if primary.clicked() {
                         self.call(
-                            "instance.install",
+                            primary_method,
                             json!({"id": instance.id}),
                             json!({"instanceId": instance.id}),
                         );
-                        ui.close_menu();
                     }
-                    if ui.button(self.tr("action.copy")).clicked() {
-                        self.call(
-                            "instance.copy",
-                            json!({"id": instance.id, "name": self.trf("instances.copy_name", &[("name", &instance.name)])}),
-                            Value::Null,
-                        );
-                        ui.close_menu();
+                    if crate::widgets::IconButton::new(
+                        "configure-instance",
+                        include_bytes!("../../assets/settings-light.png"),
+                        include_bytes!("../../assets/settings-dark.png"),
+                    )
+                    .show(ui, &self.tr("action.configure"))
+                    .clicked()
+                    {
+                        self.selected_instance = Some(instance.id.clone());
+                        self.detail_tab = DetailTab::Overview;
                     }
-                });
-                if delete_instance_button(ui, &self.tr("action.delete_instance")).clicked() {
-                    self.confirm_delete = Some(crate::app::DeleteConfirmation {
-                        instance_id: Some(instance.id.clone()),
-                        job_id: None,
-                        name: instance.name.clone(),
-                    });
-                }
-            });
+                    let can_open = self.core_instance_dir.is_some();
+                    if crate::widgets::IconButton::new(
+                        "open-instance-directory",
+                        include_bytes!("../../assets/folder-open-light.png"),
+                        include_bytes!("../../assets/folder-open-dark.png"),
+                    )
+                    .enabled(can_open)
+                    .show(ui, &self.tr("action.open_directory"))
+                    .clicked()
+                    {
+                        if let Some(directory) = &self.core_instance_dir {
+                            let _ =
+                                open::that(std::path::PathBuf::from(directory).join(&instance.id));
+                        }
+                    }
+                    if delete_instance_button(ui, &self.tr("action.delete_instance")).clicked() {
+                        self.confirm_delete = Some(crate::app::DeleteConfirmation {
+                            instance_id: Some(instance.id.clone()),
+                            job_id: None,
+                            name: instance.name.clone(),
+                        });
+                    }
+                },
+            );
         });
     }
 

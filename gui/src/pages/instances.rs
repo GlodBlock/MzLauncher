@@ -462,10 +462,16 @@ impl MzApp {
             self.install_details_job = None;
             return;
         };
-        let current = job
-            .progress
-            .current_item
-            .unwrap_or_else(|| self.tr("install_details.empty"));
+        let active_items = job.progress.active_items();
+        let active_heading = self.trf(
+            "install_details.current",
+            &[("count", &active_items.len().to_string())],
+        );
+        let pending_heading = self.trf(
+            "install_details.pending",
+            &[("count", &job.progress.pending_items.len().to_string())],
+        );
+        let empty = self.tr("install_details.empty");
         let mut close = false;
         egui::Window::new(self.tr("install_details.title"))
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
@@ -473,16 +479,29 @@ impl MzApp {
             .default_width(480.0)
             .show(ctx, |ui| {
                 ui.set_min_width(ui.available_width());
-                ui.label(egui::RichText::new(self.tr("install_details.current")).strong());
-                ui.add(egui::Label::new(current).wrap());
-                ui.separator();
-                ui.label(egui::RichText::new(self.tr("install_details.pending")).strong());
-                if job.progress.pending_items.is_empty() {
-                    ui.label(self.tr("install_details.empty"));
+                ui.label(egui::RichText::new(active_heading).strong());
+                if active_items.is_empty() {
+                    ui.label(&empty);
                 } else {
                     egui::ScrollArea::vertical()
+                        .id_salt("active_downloads")
                         .auto_shrink([false, false])
-                        .max_height(240.0)
+                        .max_height(120.0)
+                        .show(ui, |ui| {
+                            for item in active_items {
+                                ui.add(egui::Label::new(item).wrap());
+                            }
+                        });
+                }
+                ui.separator();
+                ui.label(egui::RichText::new(pending_heading).strong());
+                if job.progress.pending_items.is_empty() {
+                    ui.label(&empty);
+                } else {
+                    egui::ScrollArea::vertical()
+                        .id_salt("pending_downloads")
+                        .auto_shrink([false, false])
+                        .max_height(200.0)
                         .show(ui, |ui| {
                             for item in &job.progress.pending_items {
                                 ui.add(egui::Label::new(item).wrap());

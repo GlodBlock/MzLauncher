@@ -121,6 +121,8 @@ pub struct JobProgress {
     pub total: Option<u64>,
     pub current_item: Option<String>,
     #[serde(default)]
+    pub active_items: Vec<String>,
+    #[serde(default)]
     pub pending_items: Vec<String>,
 }
 
@@ -132,12 +134,31 @@ impl JobProgress {
         items: Vec<String>,
     ) -> Self {
         let mut items = items.into_iter();
+        let current_item = items.next();
         Self {
             stage: stage.into(),
             completed,
             total,
-            current_item: items.next(),
+            active_items: current_item.iter().cloned().collect(),
+            current_item,
             pending_items: items.collect(),
+        }
+    }
+
+    pub fn concurrent_download_queue(
+        stage: &str,
+        completed: u64,
+        total: Option<u64>,
+        active_items: Vec<String>,
+        pending_items: Vec<String>,
+    ) -> Self {
+        Self {
+            stage: stage.into(),
+            completed,
+            total,
+            current_item: active_items.first().cloned(),
+            active_items,
+            pending_items,
         }
     }
 }
@@ -372,6 +393,21 @@ mod tests {
             vec!["current.jar".into(), "next.jar".into(), "last.jar".into()],
         );
         assert_eq!(progress.current_item.as_deref(), Some("current.jar"));
+        assert_eq!(progress.active_items, vec!["current.jar"]);
+        assert_eq!(progress.pending_items, vec!["next.jar", "last.jar"]);
+    }
+
+    #[test]
+    fn concurrent_download_queue_reports_every_active_item() {
+        let progress = JobProgress::concurrent_download_queue(
+            "downloading",
+            1,
+            Some(5),
+            vec!["first.jar".into(), "second.jar".into()],
+            vec!["next.jar".into(), "last.jar".into()],
+        );
+        assert_eq!(progress.current_item.as_deref(), Some("first.jar"));
+        assert_eq!(progress.active_items, vec!["first.jar", "second.jar"]);
         assert_eq!(progress.pending_items, vec!["next.jar", "last.jar"]);
     }
 }

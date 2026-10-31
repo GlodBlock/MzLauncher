@@ -106,8 +106,8 @@
     "job.retryable_suffix": "（可重试）",
 
     "install_details.title": "下载详情",
-    "install_details.current": "当前正在下载",
-    "install_details.pending": "待下载任务",
+    "install_details.current": "正在下载（{count}）",
+    "install_details.pending": "等待下载（{count}）",
     "install_details.empty": "无",
     "install_details.close": "关闭",
 

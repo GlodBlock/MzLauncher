@@ -1079,6 +1079,7 @@ mod tests {
                 completed: 10,
                 total: Some(20),
                 current_item: None,
+                active_items: Vec::new(),
                 pending_items: Vec::new(),
             },
             error: None,

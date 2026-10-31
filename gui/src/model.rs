@@ -82,7 +82,19 @@ pub struct JobProgress {
     pub total: Option<u64>,
     pub current_item: Option<String>,
     #[serde(default)]
+    pub active_items: Vec<String>,
+    #[serde(default)]
     pub pending_items: Vec<String>,
+}
+
+impl JobProgress {
+    pub fn active_items(&self) -> Vec<&str> {
+        if self.active_items.is_empty() {
+            self.current_item.as_deref().into_iter().collect()
+        } else {
+            self.active_items.iter().map(String::as_str).collect()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -280,6 +292,22 @@ mod tests {
             "checkpoint": checkpoint,
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn active_items_fall_back_to_legacy_current_item() {
+        let legacy = job(None, Value::Null, Value::Null);
+        assert!(legacy.progress.active_items().is_empty());
+
+        let mut legacy = legacy.progress;
+        legacy.current_item = Some("current.jar".into());
+        assert_eq!(legacy.active_items(), vec!["current.jar"]);
+
+        let concurrent = JobProgress {
+            active_items: vec!["first.jar".into(), "second.jar".into()],
+            ..legacy
+        };
+        assert_eq!(concurrent.active_items(), vec!["first.jar", "second.jar"]);
     }
 
     #[test]

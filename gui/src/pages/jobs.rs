@@ -19,8 +19,18 @@ impl MzApp {
                 crate::card_frame(ui).show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
                     job_row(ui, job, self);
-                    if let Some(item) = &job.progress.current_item {
-                        ui.add(egui::Label::new(egui::RichText::new(item).small()).wrap());
+                    let active_items = job.progress.active_items();
+                    if !active_items.is_empty() {
+                        ui.label(
+                            egui::RichText::new(self.trf(
+                                "install_details.current",
+                                &[("count", &active_items.len().to_string())],
+                            ))
+                            .small(),
+                        );
+                        for item in active_items {
+                            ui.add(egui::Label::new(egui::RichText::new(item).small()).wrap());
+                        }
                     }
                     if let Some(error) = &job.error {
                         ui.colored_label(

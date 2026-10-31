@@ -169,6 +169,7 @@ async fn quiet_download_preserves_modpack_file_count_progress() {
     assert_eq!(progress.completed, 2);
     assert_eq!(progress.total, Some(10));
     assert_eq!(progress.current_item.as_deref(), Some("current.jar"));
+    assert_eq!(progress.active_items, vec!["current.jar"]);
     assert_eq!(progress.pending_items, vec!["next.jar"]);
     server.await.unwrap();
 }

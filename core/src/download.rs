@@ -380,11 +380,13 @@ impl Downloader {
             }
             if report_progress {
                 if let Some(context) = context {
+                    let current_item = Some(spec.destination.display().to_string());
                     context.download_progress(JobProgress {
                         stage: "downloading".into(),
                         completed: offset,
                         total,
-                        current_item: Some(spec.destination.display().to_string()),
+                        active_items: current_item.iter().cloned().collect(),
+                        current_item,
                         pending_items: Vec::new(),
                     })?;
                 }

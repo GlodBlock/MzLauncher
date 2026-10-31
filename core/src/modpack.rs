@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use futures_util::{stream, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -61,6 +62,52 @@ pub struct PackFile {
     pub sha1: Option<String>,
     pub sha256: Option<String>,
     pub required: bool,
+}
+
+struct ModpackDownloadItem {
+    path: String,
+    name: String,
+}
+
+struct ModpackDownloadQueue {
+    active: Vec<ModpackDownloadItem>,
+    pending: Vec<ModpackDownloadItem>,
+}
+
+impl ModpackDownloadQueue {
+    fn new(files: &[PackFile], project_names: &HashMap<String, String>) -> Self {
+        Self {
+            active: Vec::new(),
+            pending: files
+                .iter()
+                .map(|file| ModpackDownloadItem {
+                    path: file.path.clone(),
+                    name: download_item_name(file, project_names),
+                })
+                .collect(),
+        }
+    }
+
+    fn start(&mut self, path: &str) {
+        if let Some(index) = self.pending.iter().position(|item| item.path == path) {
+            let item = self.pending.remove(index);
+            self.active.push(item);
+        }
+    }
+
+    fn finish(&mut self, path: &str) {
+        self.active.retain(|item| item.path != path);
+    }
+
+    fn progress(&self, completed: u64, total: u64) -> crate::model::JobProgress {
+        crate::model::JobProgress::concurrent_download_queue(
+            "importing_modpack",
+            completed,
+            Some(total),
+            self.active.iter().map(|item| item.name.clone()).collect(),
+            self.pending.iter().map(|item| item.name.clone()).collect(),
+        )
+    }
 }
 
 #[derive(Clone)]
@@ -345,19 +392,22 @@ impl ModpackService {
             .curseforge_project_names(&project_ids)
             .await
             .unwrap_or_default();
-        context.progress(crate::model::JobProgress::download_queue(
-            "importing_modpack",
-            entries.len() as u64,
-            Some(analysis.files.len() as u64),
-            pending
-                .iter()
-                .map(|file| download_item_name(file, &project_names))
-                .collect(),
-        ))?;
+        let total = analysis.files.len() as u64;
+        let completed = Arc::new(AtomicU64::new(entries.len() as u64));
+        let download_queue = ModpackDownloadQueue::new(&pending, &project_names);
+        context.progress(download_queue.progress(completed.load(Ordering::SeqCst), total))?;
+        let download_queue = Arc::new(std::sync::Mutex::new(download_queue));
         let mut downloads = stream::iter(pending.into_iter().map(|file| {
             let instance = instance.clone();
+            let completed = completed.clone();
+            let download_queue = download_queue.clone();
             async move {
                 context.check_cancelled()?;
+                {
+                    let mut queue = download_queue.lock().unwrap();
+                    queue.start(&file.path);
+                    context.progress(queue.progress(completed.load(Ordering::SeqCst), total))?;
+                }
                 let result = if !file.required {
                     Ok(entry(&file, ModpackEntryStatus::Skipped, None))
                 } else {
@@ -395,17 +445,10 @@ impl ModpackService {
                     .expect("modpack file state must be an object")
                     .insert(file.path.clone(), serde_json::to_value(status).unwrap());
             })?;
-            context.progress(crate::model::JobProgress::download_queue(
-                "importing_modpack",
-                entries.len() as u64,
-                Some(analysis.files.len() as u64),
-                analysis
-                    .files
-                    .iter()
-                    .skip(entries.len())
-                    .map(|file| download_item_name(file, &project_names))
-                    .collect(),
-            ))?;
+            let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
+            let mut queue = download_queue.lock().unwrap();
+            queue.finish(&file.path);
+            context.progress(queue.progress(done, total))?;
         }
         if let Some(archive) = archive {
             let destination = self.paths.instance(instance.id);
@@ -857,6 +900,39 @@ mod tests {
             download_item_name(&file, &HashMap::new()),
             "mods/238222-123456.jar"
         );
+    }
+
+    #[test]
+    fn download_queue_tracks_out_of_order_concurrent_files() {
+        let first = PackFile {
+            path: "mods/first.jar".into(),
+            provider: ModProvider::Modrinth,
+            project_id: None,
+            file_id: None,
+            url: None,
+            size: None,
+            sha1: None,
+            sha256: None,
+            required: true,
+        };
+        let second = PackFile {
+            path: "mods/second.jar".into(),
+            ..first.clone()
+        };
+        let mut queue = ModpackDownloadQueue::new(&[first, second], &HashMap::new());
+        queue.start("mods/second.jar");
+        queue.start("mods/first.jar");
+        let progress = queue.progress(0, 2);
+        assert_eq!(
+            progress.active_items,
+            vec!["mods/second.jar", "mods/first.jar"]
+        );
+        assert!(progress.pending_items.is_empty());
+
+        queue.finish("mods/second.jar");
+        let progress = queue.progress(1, 2);
+        assert_eq!(progress.current_item.as_deref(), Some("mods/first.jar"));
+        assert_eq!(progress.active_items, vec!["mods/first.jar"]);
     }
 
     #[test]

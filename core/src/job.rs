@@ -72,6 +72,7 @@ impl JobContext {
             job.progress.completed = progress.completed;
             job.progress.total = progress.total;
             job.progress.current_item = progress.current_item;
+            job.progress.active_items = progress.active_items;
         })
     }
 

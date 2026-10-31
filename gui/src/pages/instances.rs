@@ -473,41 +473,18 @@ impl MzApp {
 }
 
 fn new_instance_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
-    let width = ui.available_width();
-    let (rect, mut response) = ui.allocate_exact_size(
-        egui::vec2(width, NEW_INSTANCE_BAR_HEIGHT),
-        egui::Sense::click(),
-    );
-    let visuals = ui.style().interact(&response);
-    ui.painter().rect(
-        rect,
-        visuals.corner_radius,
-        visuals.bg_fill,
-        visuals.bg_stroke,
-        egui::StrokeKind::Inside,
-    );
-    let content_rect = rect.shrink(crate::layout::CARD_INNER_MARGIN as f32);
-    let content_response = ui.allocate_new_ui(
-        egui::UiBuilder::new()
-            .max_rect(content_rect)
-            .layout(egui::Layout::left_to_right(egui::Align::Center)),
-        |ui| {
-            let (theme, png) = if ui.visuals().dark_mode {
-                ("dark", &include_bytes!("../../assets/plus-dark.png")[..])
-            } else {
-                ("light", &include_bytes!("../../assets/plus-light.png")[..])
-            };
-            let icon_response = ui.add(
-                egui::Image::from_bytes(format!("bytes://new-instance-plus-{theme}.png"), png)
-                    .fit_to_exact_size(NEW_INSTANCE_ICON_SIZE)
-                    .sense(egui::Sense::click()),
-            );
-            let label_response = ui.add(egui::Label::new(label).sense(egui::Sense::click()));
-            icon_response.union(label_response)
-        },
-    );
-    response = response.union(content_response.inner);
-    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+    let (theme, png) = if ui.visuals().dark_mode {
+        ("dark", &include_bytes!("../../assets/plus-dark.png")[..])
+    } else {
+        ("light", &include_bytes!("../../assets/plus-light.png")[..])
+    };
+    let image = egui::Image::from_bytes(format!("bytes://new-instance-plus-{theme}.png"), png)
+        .fit_to_exact_size(NEW_INSTANCE_ICON_SIZE);
+    ui.add(
+        egui::Button::image_and_text(image, label)
+            .min_size(egui::vec2(ui.available_width(), NEW_INSTANCE_BAR_HEIGHT)),
+    )
+    .on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 fn instance_icon(ui: &mut egui::Ui, name: &str) {

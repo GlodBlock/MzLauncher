@@ -84,7 +84,7 @@ fn searches_remote_modpacks_and_validates_installation() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = std::thread::spawn(move || {
-        for _ in 0..2 {
+        for _ in 0..3 {
             let (mut stream, _) = listener.accept().unwrap();
             let mut request = [0_u8; 4096];
             let read = stream.read(&mut request).unwrap();
@@ -100,8 +100,19 @@ fn searches_remote_modpacks_and_validates_installation() {
                     "art":[{"type":"square","url":"https://cdn.example.com/pack.png"}],
                     "installs":1000,
                     "versions":[{
-                        "id":500,
+                        "id":499,
+                        "name":"1.0.0",
                         "updated":10,
+                        "private":false,
+                        "targets":[
+                            {"type":"game","name":"minecraft","version":"1.21.1"},
+                            {"type":"modloader","name":"neoforge","version":"21.1.72"}
+                        ]
+                    }, {
+                        "id":500,
+                        "name":"1.1.0",
+                        "type":"release",
+                        "updated":20,
                         "private":false,
                         "targets":[
                             {"type":"game","name":"minecraft","version":"1.21.1"},
@@ -164,6 +175,15 @@ fn searches_remote_modpacks_and_validates_installation() {
     assert_eq!(search["result"][0]["name"], "FTB Evolution");
     assert_eq!(search["result"][0]["gameVersions"], json!(["1.21.1"]));
     assert_eq!(search["result"][0]["loaders"], json!(["neo_forge"]));
+    let versions = client.call(
+        "versions",
+        "modpack.versions",
+        json!({"provider":"ftb","projectId":"125","gameVersion":null,"loader":null}),
+    );
+    assert!(versions["error"].is_null(), "versions failed: {versions}");
+    assert_eq!(versions["result"][0]["fileId"], "500");
+    assert_eq!(versions["result"][0]["versionName"], "1.1.0");
+    assert_eq!(versions["result"][1]["fileId"], "499");
     let invalid = client.call(
         "invalid",
         "modpack.install",

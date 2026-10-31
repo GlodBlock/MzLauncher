@@ -178,12 +178,12 @@ impl ModProviderApi for CurseForge {
         into_mod_file(response.data)
     }
 
-    async fn modpack_file(
+    async fn modpack_files(
         &self,
         project_id: &str,
         game_version: Option<&str>,
         loader: Option<LoaderKind>,
-    ) -> CoreResult<ModFile> {
+    ) -> CoreResult<Vec<ModFile>> {
         let mut request =
             self.request(reqwest::Method::GET, &format!("/mods/{project_id}/files"))?;
         if let Some(version) = game_version {
@@ -194,14 +194,7 @@ impl ModProviderApi for CurseForge {
         }
         let response: DataResponse<Vec<FileResponse>> =
             super::send_json(request, "curseforge").await?;
-        response
-            .data
-            .into_iter()
-            .map(into_mod_file)
-            .collect::<CoreResult<Vec<_>>>()?
-            .into_iter()
-            .max_by(|left, right| left.published_at.cmp(&right.published_at))
-            .ok_or_else(|| CoreError::NotFound("matching CurseForge modpack version".into()))
+        response.data.into_iter().map(into_mod_file).collect()
     }
 }
 

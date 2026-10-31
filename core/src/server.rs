@@ -540,6 +540,13 @@ impl Server {
                 let params: ModSearchParams = parse_params(&request.params)?;
                 Ok(serde_json::to_value(self.modpacks.search(params).await?)?)
             }
+            "modpack.versions" => {
+                let params: crate::modpack_browser::ModpackVersionParams =
+                    parse_params(&request.params)?;
+                Ok(serde_json::to_value(
+                    self.modpacks.versions(&params).await?,
+                )?)
+            }
             "modpack.icon" => {
                 let params: crate::modpack_browser::ModpackIconParams =
                     parse_params(&request.params)?;
@@ -566,6 +573,7 @@ impl Server {
                                 "projectId": &params.project_id,
                                 "projectName": &params.project_name,
                                 "projectIconUrl": &params.project_icon_url,
+                                "fileId": &params.file_id,
                                 "gameVersion": &params.game_version,
                                 "loader": params.loader,
                             }

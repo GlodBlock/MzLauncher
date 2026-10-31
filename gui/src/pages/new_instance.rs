@@ -14,6 +14,8 @@ const MODPACK_ICON_SIZE: egui::Vec2 = egui::Vec2::new(56.0, 56.0);
 const MODPACK_ROW_HEIGHT: f32 = 76.0;
 const NEW_INSTANCE_WINDOW_SIZE: [f32; 2] = [1040.0, 700.0];
 const NEW_INSTANCE_MIN_WINDOW_SIZE: [f32; 2] = [760.0, 520.0];
+const MODPACK_VERSION_WINDOW_SIZE: [f32; 2] = [520.0, 220.0];
+const MODPACK_VERSION_MIN_WINDOW_SIZE: [f32; 2] = [420.0, 180.0];
 
 impl MzApp {
     pub fn new_instance_window(&mut self, ctx: &egui::Context) {
@@ -32,9 +34,87 @@ impl MzApp {
                 });
                 if ctx.input(|input| input.viewport().close_requested()) {
                     self.create = None;
+                    self.modpack_version_selection = None;
                 }
             },
         );
+    }
+
+    pub fn modpack_version_window(&mut self, ctx: &egui::Context) {
+        let Some(selection) = self.modpack_version_selection.clone() else {
+            return;
+        };
+        let mut close = false;
+        let mut install = None;
+        ctx.show_viewport_immediate(
+            egui::ViewportId::from_hash_of("modpack_version_window"),
+            egui::ViewportBuilder::default()
+                .with_title(self.tr("create.select_modpack_version"))
+                .with_inner_size(MODPACK_VERSION_WINDOW_SIZE)
+                .with_min_inner_size(MODPACK_VERSION_MIN_WINDOW_SIZE),
+            |ctx, _class| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.heading(&selection.project.name);
+                    ui.add_space(crate::layout::SECTION_GAP);
+                    if selection.loading {
+                        ui.spinner();
+                    } else if selection.versions.is_empty() {
+                        ui.label(self.tr("create.no_modpack_versions"));
+                    } else {
+                        let mut selected = selection.selected.clone();
+                        let selected_name = selection
+                            .versions
+                            .iter()
+                            .find(|version| Some(&version.file_id) == selected.as_ref())
+                            .map(|version| version.version_name.clone())
+                            .unwrap_or_else(|| self.tr("common.select"));
+                        egui::ComboBox::from_id_salt("modpack_version_selection")
+                            .width(ui.available_width())
+                            .truncate()
+                            .selected_text(selected_name)
+                            .show_ui(ui, |ui| {
+                                for version in &selection.versions {
+                                    ui.selectable_value(
+                                        &mut selected,
+                                        Some(version.file_id.clone()),
+                                        &version.version_name,
+                                    );
+                                }
+                            });
+                        if let Some(current) = &mut self.modpack_version_selection {
+                            current.selected = selected;
+                        }
+                    }
+                    ui.add_space(crate::layout::SECTION_GAP);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .add_enabled(
+                                !selection.loading && selection.selected.is_some(),
+                                egui::Button::new(self.tr("action.install")),
+                            )
+                            .clicked()
+                        {
+                            install = selection
+                                .selected
+                                .clone()
+                                .map(|file_id| (selection.project.clone(), file_id));
+                        }
+                        if ui.button(self.tr("action.cancel")).clicked() {
+                            close = true;
+                        }
+                    });
+                });
+                if ctx.input(|input| input.viewport().close_requested()) {
+                    close = true;
+                }
+            },
+        );
+        if close || install.is_some() {
+            self.modpack_version_selection = None;
+        }
+        if let Some((project, file_id)) = install {
+            self.install_modpack(project, Some(file_id));
+        }
     }
 
     fn new_instance_page(&mut self, ui: &mut egui::Ui) {
@@ -312,8 +392,30 @@ impl MzApp {
             self.change_modpack_page(offset);
         }
         if let Some(project) = install {
-            self.install_modpack(project);
+            self.choose_modpack_version(project);
         }
+    }
+
+    fn choose_modpack_version(&mut self, project: ModProject) {
+        self.modpack_version_selection = Some(crate::app::ModpackVersionSelection {
+            project: project.clone(),
+            versions: Vec::new(),
+            selected: None,
+            loading: true,
+        });
+        self.call(
+            "modpack.versions",
+            json!({
+                "provider": project.provider,
+                "projectId": project.project_id,
+                "gameVersion": optional_filter(&self.modpack_browser.game_version),
+                "loader": optional_filter(&self.modpack_browser.loader),
+            }),
+            json!({
+                "provider": project.provider,
+                "projectId": project.project_id,
+            }),
+        );
     }
 
     fn modpack_game_filter(&mut self, ui: &mut egui::Ui, width: f32, changed: &mut bool) {
@@ -392,17 +494,22 @@ impl MzApp {
         });
     }
 
-    fn install_modpack(&mut self, project: ModProject) {
+    fn install_modpack(&mut self, project: ModProject, file_id: Option<String>) {
         let existing_job = self
             .installing_modpacks
             .iter()
-            .find(|install| install.project.project_id == project.project_id)
+            .find(|install| {
+                install.project.project_id == project.project_id && install.file_id == file_id
+            })
             .and_then(|install| install.job_id.clone());
         if let Some(job_id) = existing_job {
             self.retry_modpack_install(&job_id);
         } else {
+            self.installing_modpacks
+                .retain(|install| install.project.project_id != project.project_id);
             let install = crate::app::InstallingModpack {
                 project,
+                file_id,
                 game_version: self.modpack_browser.game_version.clone(),
                 loader: self.modpack_browser.loader.clone(),
                 job_id: None,
@@ -454,6 +561,7 @@ impl MzApp {
                 "projectId": install.project.project_id,
                 "projectName": install.project.name,
                 "projectIconUrl": install.project.icon_url,
+                "fileId": install.file_id,
                 "gameVersion": optional_filter(&install.game_version),
                 "loader": optional_filter(&install.loader),
                 "name": Value::Null,

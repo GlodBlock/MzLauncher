@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use crate::download::{DownloadSpec, Downloader};
 use crate::error::{CoreError, CoreResult};
 use crate::job::JobContext;
-use crate::model::{LoaderKind, ModProvider};
+use crate::model::{LoaderKind, ModFile, ModProvider, ReleaseChannel};
 use crate::modpack::{ModpackAnalysis, ModpackFormat, PackFile};
 use crate::mods::{loader_name, ModProject, ModSearchParams, ModService};
 use crate::paths::{atomic_write, safe_relative_path, AppPaths};
@@ -28,11 +28,21 @@ pub struct ModpackIconParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ModpackVersionParams {
+    pub provider: ModProvider,
+    pub project_id: String,
+    pub game_version: Option<String>,
+    pub loader: Option<LoaderKind>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ModpackDownloadParams {
     pub provider: ModProvider,
     pub project_id: String,
     pub project_name: Option<String>,
     pub project_icon_url: Option<String>,
+    pub file_id: Option<String>,
     pub game_version: Option<String>,
     pub loader: Option<LoaderKind>,
     pub name: Option<String>,
@@ -100,24 +110,81 @@ impl ModpackBrowserService {
         Ok(STANDARD.encode(tokio::fs::read(path).await?))
     }
 
+    pub async fn versions(&self, params: &ModpackVersionParams) -> CoreResult<Vec<ModFile>> {
+        validate_remote_id(&params.project_id)?;
+        let mut files = match params.provider {
+            ModProvider::Ftb => {
+                let project_id = params
+                    .project_id
+                    .parse::<u64>()
+                    .map_err(|_| CoreError::InvalidInput("invalid FTB project id".into()))?;
+                let project = self.ftb_project(project_id).await?;
+                project
+                    .versions
+                    .iter()
+                    .filter(|version| {
+                        !version.private
+                            && ftb_version_matches(
+                                version,
+                                params.game_version.as_deref(),
+                                params.loader,
+                            )
+                    })
+                    .map(|version| ftb_version_file(&project, version))
+                    .collect()
+            }
+            ModProvider::Modrinth | ModProvider::CurseForge => {
+                self.mods
+                    .modpack_files(
+                        params.provider,
+                        &params.project_id,
+                        params.game_version.as_deref(),
+                        params.loader,
+                    )
+                    .await?
+            }
+            _ => return Err(CoreError::InvalidInput("invalid modpack provider".into())),
+        };
+        files.sort_by(|left, right| right.published_at.cmp(&left.published_at));
+        Ok(files)
+    }
+
     pub async fn fetch(
         &self,
         params: &ModpackDownloadParams,
         context: &JobContext,
     ) -> CoreResult<RemoteModpack> {
         validate_remote_id(&params.project_id)?;
+        if let Some(file_id) = &params.file_id {
+            validate_remote_id(file_id)?;
+        }
         match params.provider {
             ModProvider::Ftb => self.fetch_ftb(params).await.map(RemoteModpack::Prepared),
             ModProvider::Modrinth | ModProvider::CurseForge => {
-                let file = self
-                    .mods
-                    .modpack_file(
-                        params.provider,
-                        &params.project_id,
-                        params.game_version.as_deref(),
-                        params.loader,
-                    )
-                    .await?;
+                let file = if let Some(file_id) = &params.file_id {
+                    let file = self
+                        .mods
+                        .provider_file(params.provider, &params.project_id, file_id)
+                        .await?;
+                    if file.project_id != params.project_id {
+                        return Err(CoreError::NotFound(
+                            "selected modpack version does not belong to the project".into(),
+                        ));
+                    }
+                    file
+                } else {
+                    self.mods
+                        .modpack_files(
+                            params.provider,
+                            &params.project_id,
+                            params.game_version.as_deref(),
+                            params.loader,
+                        )
+                        .await?
+                        .into_iter()
+                        .max_by(|left, right| left.published_at.cmp(&right.published_at))
+                        .ok_or_else(|| CoreError::NotFound("matching modpack version".into()))?
+                };
                 if !file.distribution_allowed {
                     return Err(CoreError::Forbidden(
                         "this modpack does not allow automatic download".into(),
@@ -248,22 +315,30 @@ impl ModpackBrowserService {
         Ok(projects.into_iter().map(|(_, project)| project).collect())
     }
 
+    async fn ftb_project(&self, project_id: u64) -> CoreResult<FtbProject> {
+        crate::mods::send_json(
+            self.ftb
+                .get(format!("{}/public/modpack/{project_id}", self.ftb_base)),
+            "ftb",
+        )
+        .await
+    }
+
     async fn fetch_ftb(&self, params: &ModpackDownloadParams) -> CoreResult<ModpackAnalysis> {
         let project_id = params
             .project_id
             .parse::<u64>()
             .map_err(|_| CoreError::InvalidInput("invalid FTB project id".into()))?;
-        let project: FtbProject = crate::mods::send_json(
-            self.ftb
-                .get(format!("{}/public/modpack/{project_id}", self.ftb_base)),
-            "ftb",
-        )
-        .await?;
+        let project = self.ftb_project(project_id).await?;
         let version = project
             .versions
             .iter()
             .filter(|version| {
                 !version.private
+                    && params
+                        .file_id
+                        .as_deref()
+                        .is_none_or(|file_id| version.id.to_string() == file_id)
                     && ftb_version_matches(version, params.game_version.as_deref(), params.loader)
             })
             .max_by_key(|version| version.updated)
@@ -426,6 +501,48 @@ fn ftb_project(project: FtbProject) -> ModProject {
     }
 }
 
+fn ftb_version_file(project: &FtbProject, version: &FtbVersion) -> ModFile {
+    let version_name = if version.name.trim().is_empty() {
+        version.id.to_string()
+    } else {
+        version.name.clone()
+    };
+    ModFile {
+        provider: ModProvider::Ftb,
+        project_id: project.id.to_string(),
+        file_id: version.id.to_string(),
+        project_name: project.name.clone(),
+        version_name,
+        file_name: String::new(),
+        url: None,
+        size: None,
+        sha1: None,
+        sha256: None,
+        game_versions: version
+            .targets
+            .iter()
+            .filter(|target| target.kind == "game")
+            .map(|target| target.version.clone())
+            .collect(),
+        loaders: version
+            .targets
+            .iter()
+            .filter(|target| target.kind == "modloader")
+            .filter_map(|target| crate::mods::parse_loader(&target.name))
+            .collect(),
+        channel: match version.kind.as_str() {
+            "beta" => ReleaseChannel::Beta,
+            "alpha" => ReleaseChannel::Alpha,
+            _ => ReleaseChannel::Release,
+        },
+        dependencies: Vec::new(),
+        published_at: i64::try_from(version.updated)
+            .ok()
+            .and_then(|seconds| chrono::DateTime::from_timestamp(seconds, 0)),
+        distribution_allowed: true,
+    }
+}
+
 fn ftb_version_matches(
     version: &FtbVersion,
     game_version: Option<&str>,
@@ -496,6 +613,10 @@ struct FtbArt {
 #[derive(Debug, Deserialize)]
 struct FtbVersion {
     id: u64,
+    #[serde(default)]
+    name: String,
+    #[serde(rename = "type", default)]
+    kind: String,
     #[serde(default)]
     updated: u64,
     #[serde(default)]
@@ -568,9 +689,11 @@ mod tests {
         let params: ModpackDownloadParams = serde_json::from_value(serde_json::json!({
             "provider": "ftb",
             "projectId": "125",
+            "fileId": "500",
             "instanceId": id,
         }))
         .unwrap();
+        assert_eq!(params.file_id.as_deref(), Some("500"));
         assert_eq!(params.instance_id, Some(id));
     }
 

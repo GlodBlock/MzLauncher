@@ -106,8 +106,17 @@ impl ModpackBrowser {
 }
 
 #[derive(Clone)]
+pub struct ModpackVersionSelection {
+    pub project: ModProject,
+    pub versions: Vec<ModFile>,
+    pub selected: Option<String>,
+    pub loading: bool,
+}
+
+#[derive(Clone)]
 pub struct InstallingModpack {
     pub project: ModProject,
+    pub file_id: Option<String>,
     pub game_version: String,
     pub loader: String,
     pub job_id: Option<String>,
@@ -127,6 +136,10 @@ impl InstallingModpack {
         let source = job.checkpoint.as_ref()?.get("modpack")?;
         Some(Self {
             project: Self::project_from_job(job)?,
+            file_id: source
+                .get("fileId")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
             game_version: source
                 .get("gameVersion")
                 .and_then(Value::as_str)
@@ -208,6 +221,7 @@ pub struct MzApp {
     pub instance_search: String,
     pub selected_instance: Option<String>,
     pub create: Option<NewInstanceState>,
+    pub modpack_version_selection: Option<ModpackVersionSelection>,
     pub versions: Vec<VersionSummary>,
     pub loader_versions: Vec<LoaderVersion>,
     pub login: Option<LoginSession>,
@@ -258,6 +272,7 @@ impl MzApp {
             instance_search: String::new(),
             selected_instance: None,
             create: None,
+            modpack_version_selection: None,
             versions: Vec::new(),
             loader_versions: Vec::new(),
             login: None,
@@ -486,6 +501,15 @@ impl MzApp {
             "modpack.search" => {
                 if self.modpack_request_matches(pending) {
                     self.modpack_browser.searching = false;
+                }
+            }
+            "modpack.versions" => {
+                if let Some(selection) = &mut self.modpack_version_selection {
+                    if pending.context.get("projectId").and_then(Value::as_str)
+                        == Some(selection.project.project_id.as_str())
+                    {
+                        selection.loading = false;
+                    }
                 }
             }
             "modpack.analyze" => self.modpack.analyzing = false,
@@ -838,6 +862,22 @@ impl MzApp {
                     self.refresh_mods(id);
                 }
             }
+            "modpack.versions" => {
+                if let Some(selection) = &mut self.modpack_version_selection {
+                    let matches = pending.context.get("projectId").and_then(Value::as_str)
+                        == Some(selection.project.project_id.as_str())
+                        && pending.context.get("provider").and_then(Value::as_str)
+                            == Some(selection.project.provider.as_str());
+                    if matches {
+                        selection.versions = parse_list(result);
+                        selection.selected = selection
+                            .versions
+                            .first()
+                            .map(|version| version.file_id.clone());
+                        selection.loading = false;
+                    }
+                }
+            }
             "modpack.search" => {
                 if self.modpack_request_matches(pending) {
                     let mut results: Vec<ModProject> = parse_list(result);
@@ -1086,6 +1126,7 @@ impl eframe::App for MzApp {
             }
         });
         self.new_instance_window(ctx);
+        self.modpack_version_window(ctx);
         self.install_details_window(ctx);
     }
 }
@@ -1122,6 +1163,7 @@ mod tests {
                     "projectId": "925200",
                     "projectName": "All the Mods 10",
                     "projectIconUrl": "https://cdn.example.com/atm10.gif",
+                    "fileId": "6000",
                     "gameVersion": "1.21.1",
                     "loader": "neo_forge"
                 }
@@ -1134,6 +1176,7 @@ mod tests {
         assert_eq!(install.job_id.as_deref(), Some("job-1"));
         assert_eq!(install.instance_id.as_deref(), Some("instance-1"));
         assert_eq!(install.project.project_id, "925200");
+        assert_eq!(install.file_id.as_deref(), Some("6000"));
         assert_eq!(install.game_version, "1.21.1");
         assert_eq!(install.loader, "neo_forge");
         assert_eq!(

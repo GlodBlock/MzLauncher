@@ -223,6 +223,13 @@ impl ModpackService {
         self.browser.search(params).await
     }
 
+    pub async fn versions(
+        &self,
+        params: &crate::modpack_browser::ModpackVersionParams,
+    ) -> CoreResult<Vec<crate::model::ModFile>> {
+        self.browser.versions(params).await
+    }
+
     pub async fn icon(&self, url: &str) -> CoreResult<String> {
         self.browser.icon(url).await
     }

@@ -158,6 +158,8 @@
     "delete.warning": "Its mods, configs, saves, screenshots and logs will be deleted. Shared caches are kept. This cannot be undone.",
 
     "create.title": "New Instance",
+    "create.select_modpack_version": "Select Modpack Version",
+    "create.no_modpack_versions": "No matching versions.",
     "create.custom": "Custom",
     "create.search_hint": "Search modpacks",
     "create.search": "Search",

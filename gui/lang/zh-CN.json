@@ -158,6 +158,8 @@
     "delete.warning": "将删除该实例的 Mod、配置、存档、截图和日志，共享缓存不受影响。此操作不可撤销。",
 
     "create.title": "新建实例",
+    "create.select_modpack_version": "选择整合包版本",
+    "create.no_modpack_versions": "没有匹配的版本。",
     "create.custom": "自定义",
     "create.search_hint": "搜索整合包",
     "create.search": "搜索",

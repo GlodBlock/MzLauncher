@@ -108,12 +108,12 @@ impl ModProviderApi for Modrinth {
         )
     }
 
-    async fn modpack_file(
+    async fn modpack_files(
         &self,
         project_id: &str,
         game_version: Option<&str>,
         loader: Option<LoaderKind>,
-    ) -> CoreResult<ModFile> {
+    ) -> CoreResult<Vec<ModFile>> {
         let mut request = self
             .client
             .get(format!("{}/project/{project_id}/version", self.base));
@@ -127,13 +127,7 @@ impl ModProviderApi for Modrinth {
             )]);
         }
         let versions: Vec<VersionResponse> = super::send_json(request, "modrinth").await?;
-        versions
-            .into_iter()
-            .map(into_pack_file)
-            .collect::<CoreResult<Vec<_>>>()?
-            .into_iter()
-            .max_by(|left, right| left.published_at.cmp(&right.published_at))
-            .ok_or_else(|| CoreError::NotFound("matching Modrinth modpack version".into()))
+        versions.into_iter().map(into_pack_file).collect()
     }
 }
 

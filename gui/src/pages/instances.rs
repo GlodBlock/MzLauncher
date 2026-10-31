@@ -1015,6 +1015,7 @@ mod tests {
                 game_versions: Vec::new(),
                 loaders: Vec::new(),
             },
+            file_id: Some("file-1".into()),
             game_version: "1.21.1".into(),
             loader: "neo_forge".into(),
             job_id: Some(job.id.clone()),

@@ -81,12 +81,12 @@ pub trait ModProviderApi: Send + Sync {
     async fn search(&self, params: &ModSearchParams) -> CoreResult<Vec<ModProject>>;
     async fn files(&self, project_id: &str, instance: &Instance) -> CoreResult<Vec<ModFile>>;
     async fn file(&self, project_id: &str, file_id: &str) -> CoreResult<ModFile>;
-    async fn modpack_file(
+    async fn modpack_files(
         &self,
         project_id: &str,
         game_version: Option<&str>,
         loader: Option<LoaderKind>,
-    ) -> CoreResult<ModFile>;
+    ) -> CoreResult<Vec<ModFile>>;
 }
 
 #[derive(Clone)]
@@ -136,15 +136,15 @@ impl ModService {
         self.provider(params.provider)?.search(&params).await
     }
 
-    pub async fn modpack_file(
+    pub async fn modpack_files(
         &self,
         provider: ModProvider,
         project_id: &str,
         game_version: Option<&str>,
         loader: Option<LoaderKind>,
-    ) -> CoreResult<ModFile> {
+    ) -> CoreResult<Vec<ModFile>> {
         self.provider(provider)?
-            .modpack_file(project_id, game_version, loader)
+            .modpack_files(project_id, game_version, loader)
             .await
     }
 

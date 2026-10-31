@@ -9,10 +9,9 @@ const SIDEBAR_WIDTH: f32 = 180.0;
 const SOURCE_BUTTON_HEIGHT: f32 = 44.0;
 const FILTER_COMBO_WIDTH: f32 = 150.0;
 const CUSTOM_FIELD_WIDTH: f32 = 180.0;
-const ACTION_BUTTON_SIZE: egui::Vec2 = egui::Vec2::new(36.0, 32.0);
+const ACTION_BUTTON_SIZE: egui::Vec2 = egui::Vec2::splat(36.0);
 const MODPACK_ICON_SIZE: egui::Vec2 = egui::Vec2::new(56.0, 56.0);
 const MODPACK_ROW_HEIGHT: f32 = 76.0;
-const RESPONSIVE_TOOLBAR_WIDTH: f32 = 720.0;
 const NEW_INSTANCE_WINDOW_SIZE: [f32; 2] = [1040.0, 700.0];
 const NEW_INSTANCE_MIN_WINDOW_SIZE: [f32; 2] = [760.0, 520.0];
 
@@ -127,20 +126,16 @@ impl MzApp {
     fn modpack_browser(&mut self, ui: &mut egui::Ui) {
         let mut search = false;
         let mut import = false;
-        let narrow = ui.available_width() < RESPONSIVE_TOOLBAR_WIDTH;
         let spacing = ui.spacing().item_spacing.x;
-        let reserved = ACTION_BUTTON_SIZE.x * 2.0 + spacing * 3.0;
-        let filters_width = if narrow {
-            0.0
-        } else {
-            FILTER_COMBO_WIDTH * 2.0 + spacing * 2.0
-        };
-        let search_width = (ui.available_width() - reserved - filters_width).max(120.0);
+        let fixed_width = ACTION_BUTTON_SIZE.x * 2.0 + FILTER_COMBO_WIDTH * 2.0;
+        let search_width = (ui.available_width() - fixed_width - spacing * 4.0).max(0.0);
         let search_hint = self.tr("create.search_hint");
-        ui.horizontal_wrapped(|ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().interact_size.y = ACTION_BUTTON_SIZE.y;
             let response = ui.add(
                 egui::TextEdit::singleline(&mut self.modpack_browser.query)
                     .desired_width(search_width)
+                    .min_size(egui::vec2(search_width, ACTION_BUTTON_SIZE.y))
                     .hint_text(search_hint),
             );
             if response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
@@ -204,6 +199,7 @@ impl MzApp {
         };
         egui::ComboBox::from_id_salt(("new_instance_game_filter", &self.modpack_browser.provider))
             .width(FILTER_COMBO_WIDTH)
+            .truncate()
             .selected_text(selected)
             .show_ui(ui, |ui| {
                 if ui
@@ -242,6 +238,7 @@ impl MzApp {
             &self.modpack_browser.provider,
         ))
         .width(FILTER_COMBO_WIDTH)
+        .truncate()
         .selected_text(selected)
         .show_ui(ui, |ui| {
             if ui
@@ -545,7 +542,7 @@ fn modpack_row(
 ) -> Option<ModProject> {
     let mut install = None;
     crate::card_frame(ui).show(ui, |ui| {
-        ui.set_min_width(ui.available_width());
+        ui.set_width(ui.available_width());
         ui.horizontal(|ui| {
             modpack_icon(ui, project);
             let spacing = ui.spacing().item_spacing.x;
@@ -573,13 +570,24 @@ fn modpack_row(
                     ui.add(egui::Label::new(&project.summary).truncate());
                 },
             );
-            if requested.contains(&project.project_id) {
-                ui.spinner();
-            } else if action_icon_button(ui, ActionIcon::Download, &app.tr("action.install"), true)
-                .clicked()
-            {
-                install = Some(project.clone());
-            }
+            ui.allocate_ui_with_layout(
+                egui::vec2(ACTION_BUTTON_SIZE.x, MODPACK_ROW_HEIGHT),
+                egui::Layout::right_to_left(egui::Align::Center),
+                |ui| {
+                    if requested.contains(&project.project_id) {
+                        ui.spinner();
+                    } else if action_icon_button(
+                        ui,
+                        ActionIcon::Download,
+                        &app.tr("action.install"),
+                        true,
+                    )
+                    .clicked()
+                    {
+                        install = Some(project.clone());
+                    }
+                },
+            );
         });
     });
     install
@@ -669,7 +677,9 @@ fn action_icon_button(
         .fit_to_exact_size(egui::Vec2::splat(18.0));
     ui.add_enabled(
         enabled,
-        egui::Button::image(image).min_size(ACTION_BUTTON_SIZE),
+        egui::Button::image(image)
+            .min_size(ACTION_BUTTON_SIZE)
+            .corner_radius(egui::CornerRadius::same(7)),
     )
     .on_hover_text(tooltip)
 }

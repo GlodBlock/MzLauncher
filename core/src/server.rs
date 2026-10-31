@@ -550,6 +550,7 @@ impl Server {
                     move |context| async move {
                         context.checkpoint(serde_json::json!({
                             "stage": "queued",
+                            "instanceId": &params.instance_id,
                             "modpack": {
                                 "provider": params.provider,
                                 "projectId": &params.project_id,

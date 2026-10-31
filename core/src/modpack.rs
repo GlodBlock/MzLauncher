@@ -186,7 +186,7 @@ impl ModpackService {
         context: &JobContext,
     ) -> CoreResult<Value> {
         let analysis = self.analyze(path).await?;
-        self.import_analysis(analysis, Some(path.to_path_buf()), name, context)
+        self.import_analysis(analysis, Some(path.to_path_buf()), name, None, context)
             .await
     }
 
@@ -196,14 +196,22 @@ impl ModpackService {
         context: &JobContext,
     ) -> CoreResult<Value> {
         let name = params.name.clone();
+        let instance_id = params.instance_id;
         match self.browser.fetch(&params, context).await? {
             crate::modpack_browser::RemoteModpack::Archive { path, name: source } => {
                 let analysis = self.analyze(&path).await?;
-                self.import_analysis(analysis, Some(path), name.or(Some(source)), context)
-                    .await
+                self.import_analysis(
+                    analysis,
+                    Some(path),
+                    name.or(Some(source)),
+                    instance_id,
+                    context,
+                )
+                .await
             }
             crate::modpack_browser::RemoteModpack::Prepared(analysis) => {
-                self.import_analysis(analysis, None, name, context).await
+                self.import_analysis(analysis, None, name, instance_id, context)
+                    .await
             }
         }
     }
@@ -213,21 +221,44 @@ impl ModpackService {
         analysis: ModpackAnalysis,
         archive: Option<std::path::PathBuf>,
         name: Option<String>,
+        existing_instance_id: Option<uuid::Uuid>,
         context: &JobContext,
     ) -> CoreResult<Value> {
-        let instance = self.instances.create(CreateInstanceParams {
-            name: name.unwrap_or_else(|| analysis.name.clone()),
-            description: Some(format!("Imported {:?} modpack", analysis.format)),
-            game_version: analysis.game_version.clone(),
-            loader: analysis.loader,
-            loader_version: analysis.loader_version.clone(),
-            java_path: None,
-            min_memory_mb: Some(512),
-            max_memory_mb: Some(4096),
-            jvm_args: Some(Vec::new()),
-            game_args: Vec::new(),
-            account_id: None,
-        })?;
+        let existing = match existing_instance_id {
+            Some(id) => match self.instances.get(id) {
+                Ok(instance) => Some(instance),
+                Err(CoreError::NotFound(_)) => None,
+                Err(error) => return Err(error),
+            },
+            None => None,
+        };
+        if let Some(instance) = &existing {
+            if instance.game_version != analysis.game_version
+                || instance.loader != analysis.loader
+                || instance.loader_version != analysis.loader_version
+            {
+                return Err(CoreError::InvalidInput(
+                    "modpack does not match the instance being resumed".into(),
+                ));
+            }
+        }
+        let resuming = existing.is_some();
+        let instance = match existing {
+            Some(instance) => instance,
+            None => self.instances.create(CreateInstanceParams {
+                name: name.unwrap_or_else(|| analysis.name.clone()),
+                description: Some(format!("Imported {:?} modpack", analysis.format)),
+                game_version: analysis.game_version.clone(),
+                loader: analysis.loader,
+                loader_version: analysis.loader_version.clone(),
+                java_path: None,
+                min_memory_mb: Some(512),
+                max_memory_mb: Some(4096),
+                jvm_args: Some(Vec::new()),
+                game_args: Vec::new(),
+                account_id: None,
+            })?,
+        };
         context.update_checkpoint(|checkpoint| {
             checkpoint.insert("stage".into(), serde_json::json!("instance_created"));
             checkpoint.insert("instanceId".into(), serde_json::json!(instance.id));
@@ -237,7 +268,9 @@ impl ModpackService {
             );
         })?;
         if let Err(error) = self.instances.install(instance.id, context).await {
-            let _ = self.instances.delete(instance.id).await;
+            if !resuming {
+                let _ = self.instances.delete(instance.id).await;
+            }
             return Err(error);
         }
         let mut entries = Vec::new();

@@ -36,6 +36,7 @@ pub struct ModpackDownloadParams {
     pub game_version: Option<String>,
     pub loader: Option<LoaderKind>,
     pub name: Option<String>,
+    pub instance_id: Option<uuid::Uuid>,
     pub idempotency_key: Option<String>,
 }
 
@@ -555,6 +556,18 @@ mod tests {
             game_versions: Vec::new(),
             loaders: Vec::new(),
         }
+    }
+
+    #[test]
+    fn install_params_accept_an_instance_to_resume() {
+        let id = uuid::Uuid::new_v4();
+        let params: ModpackDownloadParams = serde_json::from_value(serde_json::json!({
+            "provider": "ftb",
+            "projectId": "125",
+            "instanceId": id,
+        }))
+        .unwrap();
+        assert_eq!(params.instance_id, Some(id));
     }
 
     #[test]

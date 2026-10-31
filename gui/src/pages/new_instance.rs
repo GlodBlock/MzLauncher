@@ -406,6 +406,7 @@ impl MzApp {
                 game_version: self.modpack_browser.game_version.clone(),
                 loader: self.modpack_browser.loader.clone(),
                 job_id: None,
+                instance_id: None,
             };
             self.modpack_browser
                 .requested
@@ -452,6 +453,7 @@ impl MzApp {
                 "gameVersion": optional_filter(&install.game_version),
                 "loader": optional_filter(&install.loader),
                 "name": Value::Null,
+                "instanceId": install.instance_id,
             }),
             json!({"projectId": install.project.project_id}),
         );

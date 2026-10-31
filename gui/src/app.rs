@@ -111,6 +111,7 @@ pub struct InstallingModpack {
     pub game_version: String,
     pub loader: String,
     pub job_id: Option<String>,
+    pub instance_id: Option<String>,
 }
 
 impl InstallingModpack {
@@ -153,6 +154,7 @@ impl InstallingModpack {
                 .unwrap_or_default()
                 .to_owned(),
             job_id: Some(job.id.clone()),
+            instance_id: job.instance_id().map(str::to_owned),
         })
     }
 }
@@ -1072,6 +1074,7 @@ mod tests {
             error: None,
             result: None,
             checkpoint: Some(json!({
+                "instanceId": "instance-1",
                 "modpack": {
                     "provider": "curse_forge",
                     "projectId": "925200",
@@ -1087,6 +1090,7 @@ mod tests {
         assert!(InstallingModpack::from_job(&failed).is_some());
         let install = InstallingModpack::from_job(&job).unwrap();
         assert_eq!(install.job_id.as_deref(), Some("job-1"));
+        assert_eq!(install.instance_id.as_deref(), Some("instance-1"));
         assert_eq!(install.project.project_id, "925200");
         assert_eq!(install.game_version, "1.21.1");
         assert_eq!(install.loader, "neo_forge");

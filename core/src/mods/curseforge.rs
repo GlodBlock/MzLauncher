@@ -8,7 +8,7 @@ use crate::credentials::CredentialStore;
 use crate::error::{CoreError, CoreResult};
 use crate::model::{Instance, LoaderKind, ModDependency, ModFile, ModProvider, ReleaseChannel};
 
-use super::{ModProject, ModProviderApi, ModSearchParams};
+use super::{CurseForgeProjectInfo, ModProject, ModProviderApi, ModSearchParams};
 
 const PROJECT_NAME_BATCH_SIZE: usize = 50;
 
@@ -42,15 +42,15 @@ impl CurseForge {
         Ok(plain_text_changelog(&response.data))
     }
 
-    pub async fn project_names(
+    pub async fn projects(
         &self,
         project_ids: &[String],
-    ) -> CoreResult<HashMap<String, String>> {
+    ) -> CoreResult<HashMap<String, CurseForgeProjectInfo>> {
         let ids = project_ids
             .iter()
             .filter_map(|id| id.parse::<u64>().ok())
             .collect::<Vec<_>>();
-        let mut names = HashMap::new();
+        let mut projects = HashMap::new();
         for ids in ids.chunks(PROJECT_NAME_BATCH_SIZE) {
             let response: DataResponse<Vec<ProjectResponse>> = super::send_json(
                 self.request(reqwest::Method::POST, "/mods")?
@@ -59,14 +59,17 @@ impl CurseForge {
                 self.downloader.max_retries(),
             )
             .await?;
-            names.extend(
-                response
-                    .data
-                    .into_iter()
-                    .map(|project| (project.id.to_string(), project.name)),
-            );
+            projects.extend(response.data.into_iter().map(|project| {
+                (
+                    project.id.to_string(),
+                    CurseForgeProjectInfo {
+                        name: project.name,
+                        class_id: project.class_id,
+                    },
+                )
+            }));
         }
-        Ok(names)
+        Ok(projects)
     }
 
     fn request(&self, method: reqwest::Method, path: &str) -> CoreResult<reqwest::RequestBuilder> {
@@ -224,6 +227,8 @@ struct DataResponse<T> {
 struct ProjectResponse {
     id: u64,
     name: String,
+    #[serde(default)]
+    class_id: u64,
     summary: String,
     authors: Vec<AuthorResponse>,
     logo: Option<LogoResponse>,

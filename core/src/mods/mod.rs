@@ -47,6 +47,12 @@ impl ModProjectType {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct CurseForgeProjectInfo {
+    pub name: String,
+    pub class_id: u64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModProject {
@@ -187,11 +193,11 @@ impl ModService {
         self.curseforge.changelog(project_id, file_id).await
     }
 
-    pub async fn curseforge_project_names(
+    pub async fn curseforge_projects(
         &self,
         project_ids: &[String],
-    ) -> CoreResult<std::collections::HashMap<String, String>> {
-        self.curseforge.project_names(project_ids).await
+    ) -> CoreResult<std::collections::HashMap<String, CurseForgeProjectInfo>> {
+        self.curseforge.projects(project_ids).await
     }
 
     pub fn resolve<'a>(

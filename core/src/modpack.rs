@@ -401,11 +401,11 @@ impl ModpackService {
             .filter(|file| file.provider == ModProvider::CurseForge)
             .filter_map(|file| file.project_id.clone())
             .collect::<Vec<_>>();
-        let project_names = self
-            .mods
-            .curseforge_project_names(&project_ids)
-            .await
-            .unwrap_or_default();
+        let projects = Arc::new(self.mods.curseforge_projects(&project_ids).await?);
+        let project_names = projects
+            .iter()
+            .map(|(id, project)| (id.clone(), project.name.clone()))
+            .collect();
         let total = analysis.files.len() as u64;
         let completed = Arc::new(AtomicU64::new(entries.len() as u64));
         let download_queue = ModpackDownloadQueue::new(&pending, &project_names);
@@ -415,6 +415,7 @@ impl ModpackService {
             let instance = instance.clone();
             let completed = completed.clone();
             let download_queue = download_queue.clone();
+            let projects = projects.clone();
             async move {
                 context.check_cancelled()?;
                 {
@@ -425,8 +426,25 @@ impl ModpackService {
                 let result = if !file.required {
                     Ok(entry(&file, ModpackEntryStatus::Skipped, None))
                 } else {
-                    match self.import_file(&instance, &file, context).await {
-                        Ok(()) => Ok(entry(&file, ModpackEntryStatus::Imported, None)),
+                    let class_id = if file.provider == ModProvider::CurseForge {
+                        let project_id = file.project_id.as_deref().unwrap_or_default();
+                        Some(
+                            projects
+                                .get(project_id)
+                                .ok_or_else(|| {
+                                    CoreError::NotFound(format!("CurseForge project {project_id}"))
+                                })?
+                                .class_id,
+                        )
+                    } else {
+                        None
+                    };
+                    match self.import_file(&instance, &file, class_id, context).await {
+                        Ok(path) => Ok(ModpackEntryResult {
+                            name: path,
+                            status: ModpackEntryStatus::Imported,
+                            detail: None,
+                        }),
                         Err(error) if error.is_cancelled() => Err(error),
                         Err(error) => {
                             let status = if matches!(error, CoreError::Forbidden(_)) {
@@ -502,10 +520,30 @@ impl ModpackService {
         &self,
         instance: &crate::model::Instance,
         file: &PackFile,
+        curseforge_class_id: Option<u64>,
         context: &JobContext,
-    ) -> CoreResult<()> {
+    ) -> CoreResult<String> {
+        let mut destination_path = file.path.clone();
+        let mut install_as_mod = file.path.starts_with("mods/") && file.path.ends_with(".jar");
         let mod_file = match file.provider {
             ModProvider::CurseForge => {
+                let class_id = curseforge_class_id.ok_or_else(|| {
+                    CoreError::NotFound(format!(
+                        "CurseForge project {}",
+                        file.project_id.as_deref().unwrap_or_default()
+                    ))
+                })?;
+                let directory = match class_id {
+                    6 => "mods",
+                    12 => "resourcepacks",
+                    6552 => "shaderpacks",
+                    _ => {
+                        return Err(CoreError::Unsupported(format!(
+                            "CurseForge project class {class_id} in modpacks"
+                        )))
+                    }
+                };
+                install_as_mod = class_id == 6;
                 let mut mod_file = self
                     .mods
                     .provider_file(
@@ -514,6 +552,7 @@ impl ModpackService {
                         file.file_id.as_deref().unwrap_or_default(),
                     )
                     .await?;
+                destination_path = format!("{directory}/{}", mod_file.file_name);
                 if mod_file.url.is_none() {
                     mod_file.url = Some(curseforge_download_url(file));
                     mod_file.distribution_allowed = true;
@@ -548,7 +587,7 @@ impl ModpackService {
                 ))
             }
         };
-        if file.path.starts_with("mods/") && file.path.ends_with(".jar") {
+        if install_as_mod {
             self.mods
                 .install_modpack_file(instance.id, mod_file, Some(context))
                 .await?;
@@ -556,27 +595,30 @@ impl ModpackService {
             let destination = self
                 .paths
                 .instance(instance.id)
-                .join(safe_relative_path(&file.path)?);
+                .join(safe_relative_path(&destination_path)?);
             if let Some(parent) = destination.parent() {
                 tokio::fs::create_dir_all(parent).await?;
             }
             self.downloader
                 .download_without_progress(
                     DownloadSpec {
-                        url: file.url.clone().ok_or_else(|| {
-                            CoreError::Forbidden(format!("{} requires manual download", file.path))
+                        url: mod_file.url.clone().ok_or_else(|| {
+                            CoreError::Forbidden(format!(
+                                "{} requires manual download",
+                                destination_path
+                            ))
                         })?,
                         destination,
-                        size: file.size,
-                        sha1: file.sha1.clone(),
-                        sha256: file.sha256.clone(),
+                        size: mod_file.size,
+                        sha1: mod_file.sha1.clone(),
+                        sha256: mod_file.sha256.clone(),
                         provider: "modpack".into(),
                     },
                     Some(context),
                 )
                 .await?;
         }
-        Ok(())
+        Ok(destination_path)
     }
 }
 
@@ -965,6 +1007,235 @@ mod tests {
         let progress = queue.progress(1, 2);
         assert_eq!(progress.current_item.as_deref(), Some("mods/first.jar"));
         assert_eq!(progress.active_items, vec!["mods/first.jar"]);
+    }
+
+    #[tokio::test]
+    async fn installs_curseforge_resource_and_shader_packs_outside_mods() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        std::env::set_var("MZLAUNCHER_CURSEFORGE_API_KEY", "test-key");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            for _ in 0..5 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut buffer = [0_u8; 8192];
+                let read = socket.read(&mut buffer).await.unwrap();
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                let (body, content_type) = if request.starts_with("POST /v1/mods ") {
+                    (
+                        serde_json::json!({"data": [
+                            {
+                                "id": 322506,
+                                "name": "BSL Shaders",
+                                "classId": 12,
+                                "summary": "",
+                                "authors": [],
+                                "logo": null,
+                                "links": null,
+                                "downloadCount": 0
+                            },
+                            {
+                                "id": 627557,
+                                "name": "Complementary Reimagined",
+                                "classId": 6552,
+                                "summary": "",
+                                "authors": [],
+                                "logo": null,
+                                "links": null,
+                                "downloadCount": 0
+                            }
+                        ]})
+                        .to_string(),
+                        "application/json",
+                    )
+                } else if request.starts_with("GET /v1/mods/322506/files/7588844 ") {
+                    (
+                        serde_json::json!({"data": {
+                            "id": 7588844,
+                            "modId": 322506,
+                            "displayName": "BSL_v10.1.1",
+                            "fileName": "BSL_v10.1.1.zip",
+                            "downloadUrl": format!("http://{address}/bsl.zip"),
+                            "releaseType": 1,
+                            "fileDate": "2026-01-01T00:00:00Z",
+                            "fileLength": 3,
+                            "hashes": [],
+                            "gameVersions": ["1.21.1"],
+                            "dependencies": []
+                        }})
+                        .to_string(),
+                        "application/json",
+                    )
+                } else if request.starts_with("GET /v1/mods/627557/files/8884654 ") {
+                    (
+                        serde_json::json!({"data": {
+                            "id": 8884654,
+                            "modId": 627557,
+                            "displayName": "ComplementaryReimagined_r5.9.3",
+                            "fileName": "ComplementaryReimagined_r5.9.3.zip",
+                            "downloadUrl": format!("http://{address}/complementary.zip"),
+                            "releaseType": 1,
+                            "fileDate": "2026-01-01T00:00:00Z",
+                            "fileLength": 6,
+                            "hashes": [],
+                            "gameVersions": ["1.21.1"],
+                            "dependencies": []
+                        }})
+                        .to_string(),
+                        "application/json",
+                    )
+                } else if request.starts_with("GET /bsl.zip ") {
+                    ("bsl".into(), "application/zip")
+                } else if request.starts_with("GET /complementary.zip ") {
+                    ("shader".into(), "application/zip")
+                } else {
+                    panic!("unexpected request: {request}");
+                };
+                socket
+                    .write_all(
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        )
+                        .as_bytes(),
+                    )
+                    .await
+                    .unwrap();
+                socket.write_all(body.as_bytes()).await.unwrap();
+            }
+        });
+
+        let temp = tempfile::tempdir().unwrap();
+        let paths = AppPaths::new(temp.path().join("data"));
+        paths.initialize().unwrap();
+        let store = Arc::new(Store::open(&paths).unwrap());
+        let config = Arc::new(crate::config::ConfigManager::load(paths.clone()).unwrap());
+        let downloader = Downloader::new(crate::config::DownloadConfig::default()).unwrap();
+        let endpoints = crate::config::EndpointConfig {
+            curseforge_api: format!("http://{address}/v1"),
+            ..crate::config::EndpointConfig::default()
+        };
+        let instances = InstanceService::new(
+            paths.clone(),
+            store.clone(),
+            downloader.clone(),
+            endpoints.clone(),
+            Arc::new(parking_lot::RwLock::new(paths.runtimes.clone())),
+            config,
+        );
+        let mods = ModService::new(
+            paths.clone(),
+            store.clone(),
+            downloader.clone(),
+            endpoints.clone(),
+        )
+        .unwrap();
+        let service = ModpackService::new(
+            paths.clone(),
+            store.clone(),
+            downloader,
+            instances.clone(),
+            mods,
+            endpoints.ftb_api,
+        )
+        .unwrap();
+        let projects = service
+            .mods
+            .curseforge_projects(&["322506".into(), "627557".into()])
+            .await
+            .unwrap();
+        assert_eq!(projects["322506"].class_id, 12);
+        assert_eq!(projects["627557"].class_id, 6552);
+        let instance = instances
+            .create(CreateInstanceParams {
+                name: "test".into(),
+                description: None,
+                game_version: "1.21.1".into(),
+                loader: LoaderKind::NeoForge,
+                loader_version: Some("21.1.72".into()),
+                java_path: None,
+                min_memory_mb: Some(512),
+                max_memory_mb: Some(4096),
+                jvm_args: Some(Vec::new()),
+                game_args: Vec::new(),
+                account_id: None,
+            })
+            .unwrap();
+        let pack_file = |project_id: &str, file_id: &str| PackFile {
+            path: format!("mods/{project_id}-{file_id}.jar"),
+            provider: ModProvider::CurseForge,
+            project_id: Some(project_id.into()),
+            file_id: Some(file_id.into()),
+            url: None,
+            size: None,
+            sha1: None,
+            sha256: None,
+            required: true,
+        };
+        let manager = crate::job::JobManager::new(store.clone(), 1).unwrap();
+        let job_service = service.clone();
+        let job_instance = instance.clone();
+        let job = manager
+            .submit(
+                crate::model::JobKind::Import,
+                Some(instance.id),
+                None,
+                move |context| async move {
+                    let resource = job_service
+                        .import_file(
+                            &job_instance,
+                            &pack_file("322506", "7588844"),
+                            Some(12),
+                            &context,
+                        )
+                        .await?;
+                    let shader = job_service
+                        .import_file(
+                            &job_instance,
+                            &pack_file("627557", "8884654"),
+                            Some(6552),
+                            &context,
+                        )
+                        .await?;
+                    Ok(serde_json::json!([resource, shader]))
+                },
+            )
+            .unwrap();
+        for _ in 0..100 {
+            if manager.get(job.id).unwrap().status.is_terminal() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let job = manager.get(job.id).unwrap();
+        assert_eq!(
+            job.status,
+            crate::model::JobStatus::Succeeded,
+            "{:?}",
+            job.error
+        );
+        assert_eq!(
+            job.result,
+            Some(serde_json::json!([
+                "resourcepacks/BSL_v10.1.1.zip",
+                "shaderpacks/ComplementaryReimagined_r5.9.3.zip"
+            ]))
+        );
+        server.await.unwrap();
+        std::env::remove_var("MZLAUNCHER_CURSEFORGE_API_KEY");
+        let root = paths.instance(instance.id);
+        assert_eq!(
+            std::fs::read(root.join("resourcepacks/BSL_v10.1.1.zip")).unwrap(),
+            b"bsl"
+        );
+        assert_eq!(
+            std::fs::read(root.join("shaderpacks/ComplementaryReimagined_r5.9.3.zip")).unwrap(),
+            b"shader"
+        );
+        assert!(!root.join("mods/322506-7588844.jar").exists());
+        assert!(!root.join("mods/627557-8884654.jar").exists());
+        assert!(store.mods(instance.id).unwrap().is_empty());
     }
 
     #[test]

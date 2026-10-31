@@ -273,25 +273,46 @@ impl ModpackService {
             }
             return Err(error);
         }
+        context.progress(crate::model::JobProgress::download_queue(
+            "importing_modpack",
+            0,
+            Some(analysis.files.len() as u64),
+            analysis
+                .files
+                .iter()
+                .map(|file| file.path.clone())
+                .collect(),
+        ))?;
         let mut entries = Vec::new();
         for file in &analysis.files {
             context.check_cancelled()?;
-            if !file.required {
-                entries.push(entry(file, ModpackEntryStatus::Skipped, None));
-                continue;
-            }
-            let result = self.import_file(&instance, file, context).await;
-            entries.push(match result {
-                Ok(()) => entry(file, ModpackEntryStatus::Imported, None),
-                Err(error) => {
-                    let status = if matches!(error, CoreError::Forbidden(_)) {
-                        ModpackEntryStatus::RequiresManualDownload
-                    } else {
-                        ModpackEntryStatus::Failed
-                    };
-                    entry(file, status, Some(error.to_string()))
+            let result = if !file.required {
+                entry(file, ModpackEntryStatus::Skipped, None)
+            } else {
+                match self.import_file(&instance, file, context).await {
+                    Ok(()) => entry(file, ModpackEntryStatus::Imported, None),
+                    Err(error) => {
+                        let status = if matches!(error, CoreError::Forbidden(_)) {
+                            ModpackEntryStatus::RequiresManualDownload
+                        } else {
+                            ModpackEntryStatus::Failed
+                        };
+                        entry(file, status, Some(error.to_string()))
+                    }
                 }
-            });
+            };
+            entries.push(result);
+            context.progress(crate::model::JobProgress::download_queue(
+                "importing_modpack",
+                entries.len() as u64,
+                Some(analysis.files.len() as u64),
+                analysis
+                    .files
+                    .iter()
+                    .skip(entries.len())
+                    .map(|file| file.path.clone())
+                    .collect(),
+            ))?;
         }
         if let Some(archive) = archive {
             let destination = self.paths.instance(instance.id);

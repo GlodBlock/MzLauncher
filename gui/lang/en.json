@@ -105,6 +105,12 @@
     "job.error": "Error: {message} ({code})",
     "job.retryable_suffix": "(retryable)",
 
+    "install_details.title": "Download details",
+    "install_details.current": "Currently downloading",
+    "install_details.pending": "Pending downloads",
+    "install_details.empty": "None",
+    "install_details.close": "Close",
+
     "jobs.title": "Job Center",
     "jobs.empty": "No jobs yet",
     "jobs.result_details": "Result details",

@@ -273,22 +273,41 @@ impl JavaManager {
         }
         let total = specs.len() as u64;
         let completed = Arc::new(AtomicU64::new(0));
+        let pending = Arc::new(std::sync::Mutex::new(
+            specs
+                .iter()
+                .map(|spec| spec.destination.display().to_string())
+                .collect::<Vec<_>>(),
+        ));
+        context.progress(JobProgress::download_queue(
+            "installing_java",
+            0,
+            Some(total),
+            pending.lock().unwrap().clone(),
+        ))?;
         let downloader = self.downloader.clone();
         stream::iter(specs.into_iter().map(Ok::<_, CoreError>))
             .try_for_each_concurrent(4, |spec| {
                 let downloader = downloader.clone();
                 let completed = completed.clone();
+                let pending = pending.clone();
                 async move {
                     context.check_cancelled()?;
+                    let item = spec.destination.display().to_string();
                     downloader.download(spec, None).await?;
                     let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
+                    let remaining = {
+                        let mut pending = pending.lock().unwrap();
+                        pending.retain(|candidate| candidate != &item);
+                        pending.clone()
+                    };
                     if done % 8 == 0 || done == total {
-                        context.progress(JobProgress {
-                            stage: "installing_java".into(),
-                            completed: done,
-                            total: Some(total),
-                            current_item: None,
-                        })?;
+                        context.progress(JobProgress::download_queue(
+                            "installing_java",
+                            done,
+                            Some(total),
+                            remaining,
+                        ))?;
                     }
                     Ok(())
                 }

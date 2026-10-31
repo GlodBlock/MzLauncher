@@ -110,6 +110,7 @@ impl MzApp {
             }
         });
         self.delete_dialog(ui.ctx());
+        self.install_details_dialog(ui.ctx());
     }
 
     fn installation_has_instance(&self, install: &InstallingModpack) -> bool {
@@ -178,6 +179,7 @@ impl MzApp {
         job: Option<&Job>,
     ) {
         let mut retry = None;
+        let mut details = None;
         let mut delete = None;
         crate::card_frame(ui).show(ui, |ui| {
             let width = ui.available_width();
@@ -201,8 +203,8 @@ impl MzApp {
                     }
                     let spacing = ui.spacing().item_spacing.x;
                     let info_width = (ui.available_width()
-                        - INSTALL_ACTION_SIZE.x * 2.0
-                        - spacing * 2.0
+                        - INSTALL_ACTION_SIZE.x * 3.0
+                        - spacing * 3.0
                         - crate::layout::CONTENT_TRAILING_RESERVE)
                         .max(0.0);
                     ui.allocate_ui_with_layout(
@@ -265,6 +267,9 @@ impl MzApp {
                         }
                     }
                     if let Some(job) = job {
+                        if install_details_button(ui, &self.tr("action.details")).clicked() {
+                            details = Some(job.id.clone());
+                        }
                         if delete_instance_button(ui, &self.tr("action.delete_instance")).clicked()
                         {
                             delete = Some((job.id.clone(), job.instance_id().map(str::to_owned)));
@@ -275,6 +280,9 @@ impl MzApp {
         });
         if let Some(job_id) = retry {
             self.retry_modpack_install(&job_id);
+        }
+        if let Some(job_id) = details {
+            self.install_details_job = Some(job_id);
         }
         if let Some((job_id, instance_id)) = delete {
             self.confirm_delete = Some(crate::app::DeleteConfirmation {
@@ -443,6 +451,49 @@ impl MzApp {
         }
         if confirm || cancel {
             self.confirm_delete = None;
+        }
+    }
+
+    fn install_details_dialog(&mut self, ctx: &egui::Context) {
+        let Some(id) = self.install_details_job.clone() else {
+            return;
+        };
+        let Some(job) = self.jobs.iter().find(|job| job.id == id).cloned() else {
+            self.install_details_job = None;
+            return;
+        };
+        let current = job
+            .progress
+            .current_item
+            .unwrap_or_else(|| self.tr("install_details.empty"));
+        let mut close = false;
+        egui::Window::new(self.tr("install_details.title"))
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .collapsible(false)
+            .default_width(480.0)
+            .show(ctx, |ui| {
+                ui.label(egui::RichText::new(self.tr("install_details.current")).strong());
+                ui.label(current);
+                ui.separator();
+                ui.label(egui::RichText::new(self.tr("install_details.pending")).strong());
+                if job.progress.pending_items.is_empty() {
+                    ui.label(self.tr("install_details.empty"));
+                } else {
+                    egui::ScrollArea::vertical()
+                        .max_height(240.0)
+                        .show(ui, |ui| {
+                            for item in &job.progress.pending_items {
+                                ui.label(item);
+                            }
+                        });
+                }
+                ui.separator();
+                if ui.button(self.tr("install_details.close")).clicked() {
+                    close = true;
+                }
+            });
+        if close {
+            self.install_details_job = None;
         }
     }
 
@@ -710,6 +761,15 @@ fn new_instance_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
     })
     .inner
     .on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+fn install_details_button(ui: &mut egui::Ui, tooltip: &str) -> egui::Response {
+    crate::widgets::IconButton::new(
+        "install-details",
+        include_bytes!("../../assets/info-light.png"),
+        include_bytes!("../../assets/info-dark.png"),
+    )
+    .show(ui, tooltip)
 }
 
 fn delete_instance_button(ui: &mut egui::Ui, tooltip: &str) -> egui::Response {

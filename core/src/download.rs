@@ -357,11 +357,12 @@ impl Downloader {
                 });
             }
             if let Some(context) = context {
-                context.progress(JobProgress {
+                context.download_progress(JobProgress {
                     stage: "downloading".into(),
                     completed: offset,
                     total,
                     current_item: Some(spec.destination.display().to_string()),
+                    pending_items: Vec::new(),
                 })?;
             }
         }

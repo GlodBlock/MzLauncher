@@ -81,6 +81,8 @@ pub struct JobProgress {
     pub completed: u64,
     pub total: Option<u64>,
     pub current_item: Option<String>,
+    #[serde(default)]
+    pub pending_items: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

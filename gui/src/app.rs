@@ -216,6 +216,7 @@ pub struct MzApp {
     pub core_instance_dir: Option<String>,
     pub core_log_dir: Option<String>,
     pub confirm_delete: Option<DeleteConfirmation>,
+    pub install_details_job: Option<String>,
     pub browser: ModBrowser,
     pub modpack_browser: ModpackBrowser,
     pub modpack: ModpackWizard,
@@ -265,6 +266,7 @@ impl MzApp {
             core_instance_dir: None,
             core_log_dir: None,
             confirm_delete: None,
+            install_details_job: None,
             browser: ModBrowser {
                 provider: "modrinth".into(),
                 query: String::new(),
@@ -1077,6 +1079,7 @@ mod tests {
                 completed: 10,
                 total: Some(20),
                 current_item: None,
+                pending_items: Vec::new(),
             },
             error: None,
             result: None,

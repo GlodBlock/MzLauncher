@@ -120,6 +120,26 @@ pub struct JobProgress {
     pub completed: u64,
     pub total: Option<u64>,
     pub current_item: Option<String>,
+    #[serde(default)]
+    pub pending_items: Vec<String>,
+}
+
+impl JobProgress {
+    pub fn download_queue(
+        stage: &str,
+        completed: u64,
+        total: Option<u64>,
+        items: Vec<String>,
+    ) -> Self {
+        let mut items = items.into_iter();
+        Self {
+            stage: stage.into(),
+            completed,
+            total,
+            current_item: items.next(),
+            pending_items: items.collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -337,4 +357,21 @@ pub struct CreateInstanceParams {
     #[serde(default)]
     pub game_args: Vec<String>,
     pub account_id: Option<Uuid>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn download_queue_separates_current_and_pending_items() {
+        let progress = JobProgress::download_queue(
+            "downloading",
+            1,
+            Some(4),
+            vec!["current.jar".into(), "next.jar".into(), "last.jar".into()],
+        );
+        assert_eq!(progress.current_item.as_deref(), Some("current.jar"));
+        assert_eq!(progress.pending_items, vec!["next.jar", "last.jar"]);
+    }
 }

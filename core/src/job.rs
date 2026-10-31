@@ -65,6 +65,16 @@ impl JobContext {
         })
     }
 
+    pub fn download_progress(&self, progress: JobProgress) -> CoreResult<()> {
+        self.check_cancelled()?;
+        self.inner.update(self.id, |job| {
+            job.progress.stage = progress.stage;
+            job.progress.completed = progress.completed;
+            job.progress.total = progress.total;
+            job.progress.current_item = progress.current_item;
+        })
+    }
+
     pub fn checkpoint(&self, checkpoint: Value) -> CoreResult<()> {
         self.inner.update(self.id, |job| {
             job.checkpoint = Some(checkpoint);

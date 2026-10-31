@@ -245,39 +245,43 @@ impl MzApp {
                             );
                         },
                     );
-                    if job.is_none_or(|job| {
-                        matches!(job.status.as_str(), "queued" | "running" | "cancelling")
-                    }) {
-                        ui.allocate_ui_with_layout(
-                            INSTALL_ACTION_SIZE,
-                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-                            |ui| {
-                                ui.spinner();
-                            },
-                        );
-                    } else if let Some(job) =
-                        job.filter(|job| matches!(job.status.as_str(), "failed" | "interrupted"))
-                    {
-                        if crate::widgets::IconButton::new(
-                            "retry-install",
-                            include_bytes!("../../assets/rotate-right-light.png"),
-                            include_bytes!("../../assets/rotate-right-dark.png"),
-                        )
-                        .show(ui, &self.tr("action.retry_install"))
-                        .clicked()
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if let Some(job) = job {
+                            if delete_instance_button(ui, &self.tr("action.delete_instance"))
+                                .clicked()
+                            {
+                                delete =
+                                    Some((job.id.clone(), job.instance_id().map(str::to_owned)));
+                            }
+                            if install_details_button(ui, &self.tr("action.details")).clicked() {
+                                details = Some(job.id.clone());
+                            }
+                        }
+                        if job.is_none_or(|job| {
+                            matches!(job.status.as_str(), "queued" | "running" | "cancelling")
+                        }) {
+                            ui.allocate_ui_with_layout(
+                                INSTALL_ACTION_SIZE,
+                                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                                |ui| {
+                                    ui.spinner();
+                                },
+                            );
+                        } else if let Some(job) = job
+                            .filter(|job| matches!(job.status.as_str(), "failed" | "interrupted"))
                         {
-                            retry = Some(job.id.clone());
+                            if crate::widgets::IconButton::new(
+                                "retry-install",
+                                include_bytes!("../../assets/rotate-right-light.png"),
+                                include_bytes!("../../assets/rotate-right-dark.png"),
+                            )
+                            .show(ui, &self.tr("action.retry_install"))
+                            .clicked()
+                            {
+                                retry = Some(job.id.clone());
+                            }
                         }
-                    }
-                    if let Some(job) = job {
-                        if install_details_button(ui, &self.tr("action.details")).clicked() {
-                            details = Some(job.id.clone());
-                        }
-                        if delete_instance_button(ui, &self.tr("action.delete_instance")).clicked()
-                        {
-                            delete = Some((job.id.clone(), job.instance_id().map(str::to_owned)));
-                        }
-                    }
+                    });
                 },
             );
         });

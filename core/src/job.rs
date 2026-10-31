@@ -287,6 +287,44 @@ impl JobManager {
         });
     }
 
+    pub async fn cancel_for_instance(&self, instance_id: Uuid) -> CoreResult<()> {
+        let mut events = self.inner.events.subscribe();
+        loop {
+            let jobs = self.active_instance_jobs(instance_id);
+            if jobs.is_empty() {
+                return Ok(());
+            }
+            for id in jobs {
+                self.cancel(id)?;
+            }
+            if self.active_instance_jobs(instance_id).is_empty() {
+                return Ok(());
+            }
+            let _ = events.recv().await;
+        }
+    }
+
+    fn active_instance_jobs(&self, instance_id: Uuid) -> Vec<Uuid> {
+        let instance_id = instance_id.to_string();
+        self.inner
+            .jobs
+            .lock()
+            .values()
+            .filter(|control| {
+                let job = &control.snapshot;
+                !job.status.is_terminal()
+                    && (job.target.is_some_and(|id| id.to_string() == instance_id)
+                        || job
+                            .checkpoint
+                            .as_ref()
+                            .and_then(|checkpoint| checkpoint.get("instanceId"))
+                            .and_then(Value::as_str)
+                            == Some(instance_id.as_str()))
+            })
+            .map(|control| control.snapshot.id)
+            .collect()
+    }
+
     pub fn cancel(&self, id: Uuid) -> CoreResult<JobSnapshot> {
         let control = self.inner.jobs.lock().get(&id).map(|control| {
             control.cancellation.cancel();
@@ -301,5 +339,33 @@ impl JobManager {
             }
         })?;
         self.get(id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cancel_for_instance_waits_for_job_to_finish() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = crate::paths::AppPaths::new(temp.path().join("data"));
+        paths.initialize().unwrap();
+        let store = Arc::new(Store::open(&paths).unwrap());
+        let manager = JobManager::new(store, 1).unwrap();
+        let instance_id = Uuid::new_v4();
+        let job = manager
+            .submit(
+                JobKind::Install,
+                Some(instance_id),
+                None,
+                |context| async move {
+                    context.cancelled().await;
+                    Err(CoreError::Cancelled)
+                },
+            )
+            .unwrap();
+        manager.cancel_for_instance(instance_id).await.unwrap();
+        assert_eq!(manager.get(job.id).unwrap().status, JobStatus::Cancelled);
     }
 }

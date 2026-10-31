@@ -172,6 +172,13 @@ pub struct Pending {
     pub context: Value,
 }
 
+#[derive(Clone)]
+pub struct DeleteConfirmation {
+    pub instance_id: Option<String>,
+    pub job_id: Option<String>,
+    pub name: String,
+}
+
 pub struct MzApp {
     pub i18n: I18n,
     pub preferences: GuiPreferences,
@@ -208,7 +215,7 @@ pub struct MzApp {
     pub core_data_dir: Option<String>,
     pub core_instance_dir: Option<String>,
     pub core_log_dir: Option<String>,
-    pub confirm_delete: Option<String>,
+    pub confirm_delete: Option<DeleteConfirmation>,
     pub browser: ModBrowser,
     pub modpack_browser: ModpackBrowser,
     pub modpack: ModpackWizard,

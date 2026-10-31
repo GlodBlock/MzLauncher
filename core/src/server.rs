@@ -407,6 +407,16 @@ impl Server {
                         "stop the game before deleting this instance".into(),
                     ));
                 }
+                tokio::time::timeout(
+                    Duration::from_secs(10),
+                    self.jobs.cancel_for_instance(params.id),
+                )
+                .await
+                .map_err(|_| {
+                    CoreError::Conflict(
+                        "installation is still stopping; try deleting again shortly".into(),
+                    )
+                })??;
                 self.instances.delete(params.id).await?;
                 Ok(Value::Null)
             }

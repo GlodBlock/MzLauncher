@@ -204,9 +204,14 @@ impl LoaderService {
             .arg(&work)
             .current_dir(&work)
             .kill_on_drop(true);
-        let output = tokio::time::timeout(Duration::from_secs(600), command.output())
-            .await
-            .map_err(|_| CoreError::Network("mod loader installer timed out".into()))??;
+        let output = tokio::time::timeout(Duration::from_secs(600), async {
+            tokio::select! {
+                output = command.output() => output.map_err(CoreError::from),
+                _ = context.cancelled() => Err(CoreError::Cancelled),
+            }
+        })
+        .await
+        .map_err(|_| CoreError::Network("mod loader installer timed out".into()))??;
         if !output.status.success() {
             tracing::warn!(
                 exit_code = output.status.code(),

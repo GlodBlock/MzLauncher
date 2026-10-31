@@ -178,6 +178,7 @@ impl MzApp {
         job: Option<&Job>,
     ) {
         let mut retry = None;
+        let mut delete = None;
         crate::card_frame(ui).show(ui, |ui| {
             let width = ui.available_width();
             ui.set_min_width(width);
@@ -200,8 +201,8 @@ impl MzApp {
                     }
                     let spacing = ui.spacing().item_spacing.x;
                     let info_width = (ui.available_width()
-                        - INSTALL_ACTION_SIZE.x
-                        - spacing
+                        - INSTALL_ACTION_SIZE.x * 2.0
+                        - spacing * 2.0
                         - crate::layout::CONTENT_TRAILING_RESERVE)
                         .max(0.0);
                     ui.allocate_ui_with_layout(
@@ -263,11 +264,24 @@ impl MzApp {
                             retry = Some(job.id.clone());
                         }
                     }
+                    if let Some(job) = job {
+                        if delete_instance_button(ui, &self.tr("action.delete_instance")).clicked()
+                        {
+                            delete = Some((job.id.clone(), job.instance_id().map(str::to_owned)));
+                        }
+                    }
                 },
             );
         });
         if let Some(job_id) = retry {
             self.retry_modpack_install(&job_id);
+        }
+        if let Some((job_id, instance_id)) = delete {
+            self.confirm_delete = Some(crate::app::DeleteConfirmation {
+                instance_id,
+                job_id: Some(job_id),
+                name: name.to_owned(),
+            });
         }
     }
 
@@ -305,7 +319,8 @@ impl MzApp {
                     .iter()
                     .map(|symbol| crate::layout::button_width(ui, *symbol))
                     .sum::<f32>()
-                    + spacing * (action_symbols.len() - 1) as f32;
+                    + INSTALL_ACTION_SIZE.x
+                    + spacing * action_symbols.len() as f32;
                 let info_width = (ui.available_width() - actions_width - spacing - crate::layout::CONTENT_TRAILING_RESERVE)
                         .max(0.0);
                 ui.allocate_ui_with_layout(
@@ -385,27 +400,29 @@ impl MzApp {
                         );
                         ui.close_menu();
                     }
-                    if ui.button(self.tr("action.delete_instance")).clicked() {
-                        self.confirm_delete = Some(instance.id.clone());
-                        ui.close_menu();
-                    }
                 });
+                if delete_instance_button(ui, &self.tr("action.delete_instance")).clicked() {
+                    self.confirm_delete = Some(crate::app::DeleteConfirmation {
+                        instance_id: Some(instance.id.clone()),
+                        job_id: None,
+                        name: instance.name.clone(),
+                    });
+                }
             });
         });
     }
 
     fn delete_dialog(&mut self, ctx: &egui::Context) {
-        let Some(id) = self.confirm_delete.clone() else {
+        let Some(confirmation) = self.confirm_delete.clone() else {
             return;
         };
-        let name = self.instance_name(&id);
         let mut confirm = false;
         let mut cancel = false;
         egui::Window::new(self.tr("delete.title"))
             .collapsible(false)
             .resizable(false)
             .show(ctx, |ui| {
-                ui.label(self.trf("delete.confirm", &[("name", &name)]));
+                ui.label(self.trf("delete.confirm", &[("name", &confirmation.name)]));
                 ui.label(self.tr("delete.warning"));
                 ui.horizontal(|ui| {
                     if ui.button(self.tr("action.cancel")).clicked() {
@@ -417,7 +434,11 @@ impl MzApp {
                 });
             });
         if confirm {
-            self.call("instance.delete", json!({"id": id}), Value::Null);
+            if let Some(id) = confirmation.instance_id {
+                self.call("instance.delete", json!({"id": id}), Value::Null);
+            } else if let Some(id) = confirmation.job_id {
+                self.call("job.cancel", json!({"id": id}), Value::Null);
+            }
         }
         if confirm || cancel {
             self.confirm_delete = None;
@@ -688,6 +709,15 @@ fn new_instance_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
     })
     .inner
     .on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+fn delete_instance_button(ui: &mut egui::Ui, tooltip: &str) -> egui::Response {
+    crate::widgets::IconButton::new(
+        "delete-instance",
+        include_bytes!("../../assets/trash-light.png"),
+        include_bytes!("../../assets/trash-dark.png"),
+    )
+    .show(ui, tooltip)
 }
 
 fn instance_icon(ui: &mut egui::Ui, name: &str) {

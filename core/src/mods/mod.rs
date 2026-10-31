@@ -245,12 +245,33 @@ impl ModService {
         file: ModFile,
         context: &JobContext,
     ) -> CoreResult<Value> {
+        self.install_with_progress(instance_id, file, context, true)
+            .await
+    }
+
+    pub async fn install_without_progress(
+        &self,
+        instance_id: Uuid,
+        file: ModFile,
+        context: &JobContext,
+    ) -> CoreResult<Value> {
+        self.install_with_progress(instance_id, file, context, false)
+            .await
+    }
+
+    async fn install_with_progress(
+        &self,
+        instance_id: Uuid,
+        file: ModFile,
+        context: &JobContext,
+        report_progress: bool,
+    ) -> CoreResult<Value> {
         let plan = self.resolve(instance_id, file).await?;
         let mut installed = Vec::new();
         for file in plan {
             context.check_cancelled()?;
             installed.push(
-                self.install_one(instance_id, file, false, Some(context))
+                self.install_one(instance_id, file, false, Some(context), report_progress)
                     .await?,
             );
         }
@@ -263,6 +284,7 @@ impl ModService {
         file: ModFile,
         replace: bool,
         context: Option<&JobContext>,
+        report_progress: bool,
     ) -> CoreResult<InstalledMod> {
         let instance = self.store.instance(instance_id)?;
         if instance.install_status != InstallStatus::Installed {
@@ -304,21 +326,24 @@ impl ModService {
             .join(provider_name(file.provider))
             .join(&file.file_id)
             .join(&file.file_name);
-        self.downloader
-            .download(
-                DownloadSpec {
-                    url: file.url.clone().ok_or_else(|| {
-                        CoreError::Forbidden("Mod has no automatic download URL".into())
-                    })?,
-                    destination: cache.clone(),
-                    size: file.size,
-                    sha1: file.sha1.clone(),
-                    sha256: file.sha256.clone(),
-                    provider: provider_name(file.provider).into(),
-                },
-                context,
-            )
-            .await?;
+        let spec = DownloadSpec {
+            url: file
+                .url
+                .clone()
+                .ok_or_else(|| CoreError::Forbidden("Mod has no automatic download URL".into()))?,
+            destination: cache.clone(),
+            size: file.size,
+            sha1: file.sha1.clone(),
+            sha256: file.sha256.clone(),
+            provider: provider_name(file.provider).into(),
+        };
+        if report_progress {
+            self.downloader.download(spec, context).await?;
+        } else {
+            self.downloader
+                .download_without_progress(spec, context)
+                .await?;
+        }
         let destination = self
             .paths
             .instance(instance_id)
@@ -487,7 +512,7 @@ impl ModService {
                     return serde_json::to_value(&current).map_err(CoreError::from);
                 }
                 let updated = self
-                    .install_one(instance_id, candidate, true, Some(context))
+                    .install_one(instance_id, candidate, true, Some(context), true)
                     .await?;
                 serde_json::to_value(updated).map_err(CoreError::from)
             }
@@ -702,6 +727,7 @@ mod tests {
                 mod_file("new", Some(format!("http://{address}/example.jar"))),
                 true,
                 None,
+                true,
             )
             .await
             .unwrap();

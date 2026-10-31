@@ -393,7 +393,9 @@ impl ModpackService {
             }
         };
         if file.path.starts_with("mods/") && file.path.ends_with(".jar") {
-            self.mods.install(instance.id, mod_file, context).await?;
+            self.mods
+                .install_without_progress(instance.id, mod_file, context)
+                .await?;
         } else {
             let destination = self
                 .paths
@@ -403,7 +405,7 @@ impl ModpackService {
                 tokio::fs::create_dir_all(parent).await?;
             }
             self.downloader
-                .download(
+                .download_without_progress(
                     DownloadSpec {
                         url: file.url.clone().ok_or_else(|| {
                             CoreError::Forbidden(format!("{} requires manual download", file.path))

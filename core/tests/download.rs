@@ -119,6 +119,60 @@ async fn never_commits_checksum_mismatch() {
     server.await.unwrap();
 }
 
+#[tokio::test]
+async fn quiet_download_preserves_modpack_file_count_progress() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        read_request(&mut socket).await;
+        socket
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nhello world")
+            .await
+            .unwrap();
+    });
+    let temp = tempfile::tempdir().unwrap();
+    let paths = mzlauncher_core::paths::AppPaths::new(temp.path().join("data"));
+    paths.initialize().unwrap();
+    let store = std::sync::Arc::new(mzlauncher_core::store::Store::open(&paths).unwrap());
+    let manager = mzlauncher_core::job::JobManager::new(store, 1).unwrap();
+    let downloader = Downloader::new(DownloadConfig::default()).unwrap();
+    let destination = temp.path().join("file.bin");
+    let url = format!("http://{address}/file");
+    let job = manager
+        .submit(
+            mzlauncher_core::model::JobKind::Download,
+            None,
+            None,
+            move |context| async move {
+                context.progress(mzlauncher_core::model::JobProgress::download_queue(
+                    "importing_modpack",
+                    2,
+                    Some(10),
+                    vec!["current.jar".into(), "next.jar".into()],
+                ))?;
+                downloader
+                    .download_without_progress(spec(&url, &destination, 11), Some(&context))
+                    .await?;
+                Ok(serde_json::Value::Null)
+            },
+        )
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while !manager.get(job.id).unwrap().status.is_terminal() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let progress = manager.get(job.id).unwrap().progress;
+    assert_eq!(progress.completed, 2);
+    assert_eq!(progress.total, Some(10));
+    assert_eq!(progress.current_item.as_deref(), Some("current.jar"));
+    assert_eq!(progress.pending_items, vec!["next.jar"]);
+    server.await.unwrap();
+}
+
 fn spec(url: &str, destination: &Path, size: u64) -> DownloadSpec {
     DownloadSpec {
         url: url.into(),

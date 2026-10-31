@@ -163,6 +163,23 @@ impl Downloader {
         spec: DownloadSpec,
         context: Option<&JobContext>,
     ) -> CoreResult<DownloadOutcome> {
+        self.download_inner(spec, context, true).await
+    }
+
+    pub async fn download_without_progress(
+        &self,
+        spec: DownloadSpec,
+        context: Option<&JobContext>,
+    ) -> CoreResult<DownloadOutcome> {
+        self.download_inner(spec, context, false).await
+    }
+
+    async fn download_inner(
+        &self,
+        spec: DownloadSpec,
+        context: Option<&JobContext>,
+        report_progress: bool,
+    ) -> CoreResult<DownloadOutcome> {
         validate_url(&spec.url)?;
         validate_hashes(&spec)?;
         if let Some(parent) = spec.destination.parent() {
@@ -210,7 +227,7 @@ impl Downloader {
                 }
             }
             match self
-                .download_attempt(&spec, &partial, &metadata_path, context)
+                .download_attempt(&spec, &partial, &metadata_path, context, report_progress)
                 .await
             {
                 Ok(()) => {
@@ -244,6 +261,7 @@ impl Downloader {
         partial: &Path,
         metadata_path: &Path,
         context: Option<&JobContext>,
+        report_progress: bool,
     ) -> CoreResult<()> {
         let previous = read_partial_metadata(metadata_path).await;
         let mut offset = if previous.as_ref().is_some_and(|meta| {
@@ -356,14 +374,16 @@ impl Downloader {
                     path: spec.destination.display().to_string(),
                 });
             }
-            if let Some(context) = context {
-                context.download_progress(JobProgress {
-                    stage: "downloading".into(),
-                    completed: offset,
-                    total,
-                    current_item: Some(spec.destination.display().to_string()),
-                    pending_items: Vec::new(),
-                })?;
+            if report_progress {
+                if let Some(context) = context {
+                    context.download_progress(JobProgress {
+                        stage: "downloading".into(),
+                        completed: offset,
+                        total,
+                        current_item: Some(spec.destination.display().to_string()),
+                        pending_items: Vec::new(),
+                    })?;
+                }
             }
         }
         file.flush().await?;

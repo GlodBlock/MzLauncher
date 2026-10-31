@@ -96,12 +96,18 @@ impl LoaderService {
         }
     }
 
-    pub async fn prepare(&self, instance: &Instance, context: &JobContext) -> CoreResult<String> {
+    pub async fn prepare(
+        &self,
+        instance: &Instance,
+        java_requirement: &JavaRequirement,
+        context: &JobContext,
+    ) -> CoreResult<String> {
         match instance.loader {
             LoaderKind::Vanilla => Ok(instance.game_version.clone()),
             LoaderKind::Fabric => self.prepare_fabric(instance).await,
             LoaderKind::Forge | LoaderKind::NeoForge => {
-                self.prepare_installer(instance, context).await
+                self.prepare_installer(instance, java_requirement, context)
+                    .await
             }
             LoaderKind::Quilt => Err(CoreError::Unsupported(
                 "Quilt is not enabled in this core version".into(),
@@ -149,6 +155,7 @@ impl LoaderService {
     async fn prepare_installer(
         &self,
         instance: &Instance,
+        java_requirement: &JavaRequirement,
         context: &JobContext,
     ) -> CoreResult<String> {
         let loader_version = required_loader_version(instance)?;
@@ -186,13 +193,7 @@ impl LoaderService {
             .await?;
         let java = self
             .java
-            .select(
-                &JavaRequirement {
-                    component: None,
-                    major_version: 8,
-                },
-                instance.java_path.as_deref(),
-            )
+            .select(java_requirement, instance.java_path.as_deref())
             .await?;
         let mut command = tokio::process::Command::new(java.path);
         command
@@ -206,6 +207,12 @@ impl LoaderService {
             .await
             .map_err(|_| CoreError::Network("mod loader installer timed out".into()))??;
         if !output.status.success() {
+            tracing::warn!(
+                exit_code = output.status.code(),
+                stdout = %String::from_utf8_lossy(&output.stdout),
+                stderr = %String::from_utf8_lossy(&output.stderr),
+                "mod loader installer failed"
+            );
             let _ = tokio::fs::remove_dir_all(&work).await;
             return Err(CoreError::Upstream {
                 provider: loader_name(instance.loader).into(),

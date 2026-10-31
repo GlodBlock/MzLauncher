@@ -49,7 +49,17 @@ async fn fabric_profile_can_be_read_and_merged_for_an_instance() {
         .submit(JobKind::Install, Some(instance.id), None, move |context| {
             let instance = instance.clone();
             async move {
-                let profile = loader.prepare(&instance, &context).await?;
+                let java_requirement = version_service
+                    .merged(&instance.game_version)
+                    .await?
+                    .java_version
+                    .unwrap_or(mzlauncher_core::version::JavaRequirement {
+                        component: Some("jre-legacy".into()),
+                        major_version: 8,
+                    });
+                let profile = loader
+                    .prepare(&instance, &java_requirement, &context)
+                    .await?;
                 let merged = version_service.merged_for_instance(&instance).await?;
                 let arguments = merged.arguments.as_ref().unwrap();
                 assert!(arguments.game.len() > 2);

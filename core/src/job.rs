@@ -70,6 +70,20 @@ impl JobContext {
             job.checkpoint = Some(checkpoint);
         })
     }
+
+    pub fn update_checkpoint(
+        &self,
+        update: impl FnOnce(&mut serde_json::Map<String, Value>),
+    ) -> CoreResult<()> {
+        self.inner.update(self.id, |job| {
+            let checkpoint = job
+                .checkpoint
+                .get_or_insert_with(|| Value::Object(Default::default()))
+                .as_object_mut()
+                .expect("job checkpoint must be an object");
+            update(checkpoint);
+        })
+    }
 }
 
 impl JobInner {

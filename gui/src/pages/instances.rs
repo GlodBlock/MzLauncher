@@ -81,7 +81,13 @@ impl MzApp {
                     .and_then(|id| self.jobs.iter().find(|job| &job.id == id))
                     .cloned();
                 let version = self.modpack_install_version(&install);
-                self.installing_row(ui, &install.project.name, &version, job.as_ref());
+                self.installing_row(
+                    ui,
+                    &install.project.name,
+                    &version,
+                    Some(&install.project),
+                    job.as_ref(),
+                );
                 ui.add_space(crate::layout::CARD_LIST_GAP);
             }
             for instance in instances {
@@ -101,12 +107,13 @@ impl MzApp {
             .is_some_and(|id| self.instances.iter().any(|instance| instance.id == id))
     }
 
-    fn active_installation_job(&self, instance_id: &str) -> Option<Job> {
+    fn displayed_installation_job(&self, instance_id: &str) -> Option<Job> {
         self.jobs
             .iter()
             .find(|job| {
                 matches!(job.kind.as_str(), "import" | "install")
-                    && matches!(job.status.as_str(), "queued" | "running" | "cancelling")
+                    && (matches!(job.status.as_str(), "queued" | "running" | "cancelling")
+                        || (job.kind == "import" && job.status == "interrupted"))
                     && job.instance_id() == Some(instance_id)
             })
             .cloned()
@@ -148,12 +155,31 @@ impl MzApp {
         format!("{} · {}", game_version, self.tr(loader_key(loader)))
     }
 
-    fn installing_row(&mut self, ui: &mut egui::Ui, name: &str, version: &str, job: Option<&Job>) {
+    fn installing_row(
+        &mut self,
+        ui: &mut egui::Ui,
+        name: &str,
+        version: &str,
+        project: Option<&crate::model::ModProject>,
+        job: Option<&Job>,
+    ) {
         crate::card_frame(ui).show(ui, |ui| {
             let width = ui.available_width();
             ui.set_min_width(width);
             ui.horizontal(|ui| {
-                instance_icon(ui, name);
+                let texture = project.and_then(|project| {
+                    self.modpack_icons
+                        .texture(ui.ctx(), &crate::app::modpack_icon_key(project))
+                });
+                if let Some(texture) = texture {
+                    let (rect, _) =
+                        ui.allocate_exact_size(INSTANCE_ICON_SIZE, egui::Sense::hover());
+                    egui::Image::new((texture.id(), INSTANCE_ICON_SIZE))
+                        .corner_radius(egui::CornerRadius::same(8))
+                        .paint_at(ui, rect);
+                } else {
+                    instance_icon(ui, name);
+                }
                 let spacing = ui.spacing().item_spacing.x;
                 let spinner_width = ui.spacing().interact_size.y;
                 let info_width = (ui.available_width() - spinner_width - spacing).max(0.0);
@@ -191,15 +217,24 @@ impl MzApp {
                         );
                     },
                 );
-                ui.spinner();
+                if job.is_none_or(|job| {
+                    matches!(job.status.as_str(), "queued" | "running" | "cancelling")
+                }) {
+                    ui.spinner();
+                }
             });
         });
     }
 
     fn instance_row(&mut self, ui: &mut egui::Ui, instance: &Instance) {
         let version = self.instance_version(instance);
-        if let Some(job) = self.active_installation_job(&instance.id) {
-            self.installing_row(ui, &instance.name, &version, Some(&job));
+        if let Some(job) = self.displayed_installation_job(&instance.id) {
+            let project = self
+                .installing_modpacks
+                .iter()
+                .find(|install| install.job_id.as_deref() == Some(job.id.as_str()))
+                .map(|install| install.project.clone());
+            self.installing_row(ui, &instance.name, &version, project.as_ref(), Some(&job));
             return;
         }
         crate::card_frame(ui).show(ui, |ui| {

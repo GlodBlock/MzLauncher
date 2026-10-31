@@ -547,7 +547,20 @@ impl Server {
                     JobKind::Import,
                     None,
                     idempotency_key,
-                    move |context| async move { service.import_remote(params, &context).await },
+                    move |context| async move {
+                        context.checkpoint(serde_json::json!({
+                            "stage": "queued",
+                            "modpack": {
+                                "provider": params.provider,
+                                "projectId": &params.project_id,
+                                "projectName": &params.project_name,
+                                "projectIconUrl": &params.project_icon_url,
+                                "gameVersion": &params.game_version,
+                                "loader": params.loader,
+                            }
+                        }))?;
+                        service.import_remote(params, &context).await
+                    },
                 )?;
                 Ok(serde_json::to_value(job)?)
             }

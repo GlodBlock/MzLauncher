@@ -113,6 +113,50 @@ pub struct InstallingModpack {
     pub job_id: Option<String>,
 }
 
+impl InstallingModpack {
+    fn from_job(job: &Job) -> Option<Self> {
+        if job.kind != "import"
+            || !matches!(
+                job.status.as_str(),
+                "queued" | "running" | "cancelling" | "interrupted"
+            )
+        {
+            return None;
+        }
+        let source = job.checkpoint.as_ref()?.get("modpack")?;
+        let project_id = source.get("projectId")?.as_str()?.to_owned();
+        let name = source.get("projectName")?.as_str()?.to_owned();
+        Some(Self {
+            project: ModProject {
+                provider: source.get("provider")?.as_str()?.to_owned(),
+                project_id,
+                name,
+                summary: String::new(),
+                author: String::new(),
+                icon_url: source
+                    .get("projectIconUrl")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                page_url: None,
+                downloads: 0,
+                game_versions: Vec::new(),
+                loaders: Vec::new(),
+            },
+            game_version: source
+                .get("gameVersion")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            loader: source
+                .get("loader")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            job_id: Some(job.id.clone()),
+        })
+    }
+}
+
 pub struct ModpackWizard {
     pub path: String,
     pub name: String,
@@ -327,6 +371,11 @@ impl MzApp {
             .modpack_browser
             .results
             .iter()
+            .chain(
+                self.installing_modpacks
+                    .iter()
+                    .map(|install| &install.project),
+            )
             .filter_map(|project| {
                 let url = project.icon_url.as_deref()?;
                 if url.trim().is_empty() {
@@ -600,6 +649,12 @@ impl MzApp {
             "job.list" => {
                 self.jobs = parse_list(result);
                 self.jobs.reverse();
+                self.installing_modpacks = self
+                    .jobs
+                    .iter()
+                    .filter_map(InstallingModpack::from_job)
+                    .collect();
+                self.request_missing_modpack_icons();
             }
             "settings.get" | "settings.update" | "settings.reset" => {
                 if let Ok(settings) = serde_json::from_value::<AppSettings>(result) {
@@ -982,4 +1037,46 @@ impl eframe::App for MzApp {
 
 pub fn modpack_icon_key(project: &ModProject) -> String {
     format!("{}:{}", project.provider, project.project_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn restores_interrupted_remote_modpack_from_checkpoint() {
+        let job = Job {
+            id: "job-1".into(),
+            kind: "import".into(),
+            status: "interrupted".into(),
+            target: None,
+            progress: JobProgress {
+                stage: "downloading".into(),
+                completed: 10,
+                total: Some(20),
+                current_item: None,
+            },
+            error: None,
+            result: None,
+            checkpoint: Some(json!({
+                "modpack": {
+                    "provider": "curse_forge",
+                    "projectId": "925200",
+                    "projectName": "All the Mods 10",
+                    "projectIconUrl": "https://cdn.example.com/atm10.gif",
+                    "gameVersion": "1.21.1",
+                    "loader": "neo_forge"
+                }
+            })),
+        };
+        let install = InstallingModpack::from_job(&job).unwrap();
+        assert_eq!(install.job_id.as_deref(), Some("job-1"));
+        assert_eq!(install.project.project_id, "925200");
+        assert_eq!(install.game_version, "1.21.1");
+        assert_eq!(install.loader, "neo_forge");
+        assert_eq!(
+            install.project.icon_url.as_deref(),
+            Some("https://cdn.example.com/atm10.gif")
+        );
+    }
 }

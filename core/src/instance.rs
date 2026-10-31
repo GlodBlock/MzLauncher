@@ -239,7 +239,10 @@ impl InstanceService {
         instance.install_status = InstallStatus::Installing;
         instance.updated_at = Utc::now();
         self.store.save_instance(&instance)?;
-        context.checkpoint(json!({"stage": "installing", "instanceId": id}))?;
+        context.update_checkpoint(|checkpoint| {
+            checkpoint.insert("stage".into(), json!("installing"));
+            checkpoint.insert("instanceId".into(), json!(id));
+        })?;
         let result = async {
             let base = self.versions.merged(&instance.game_version).await?;
             let java_requirement = base
@@ -251,7 +254,10 @@ impl InstanceService {
             self.java
                 .ensure(&java_requirement, instance.java_path.as_deref(), context)
                 .await?;
-            let profile = self.loaders.prepare(&instance, context).await?;
+            let profile = self
+                .loaders
+                .prepare(&instance, &java_requirement, context)
+                .await?;
             let mut result = self.versions.install(&instance, context).await?;
             result["loaderProfile"] = serde_json::to_value(profile)?;
             let requirement = crate::java::java_from_value(&result["javaVersion"])?;

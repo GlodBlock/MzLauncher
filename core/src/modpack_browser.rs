@@ -32,6 +32,7 @@ pub struct ModpackDownloadParams {
     pub provider: ModProvider,
     pub project_id: String,
     pub project_name: Option<String>,
+    pub project_icon_url: Option<String>,
     pub game_version: Option<String>,
     pub loader: Option<LoaderKind>,
     pub name: Option<String>,

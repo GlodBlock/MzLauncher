@@ -228,11 +228,14 @@ impl ModpackService {
             game_args: Vec::new(),
             account_id: None,
         })?;
-        context.checkpoint(serde_json::json!({
-            "stage": "instance_created",
-            "instanceId": instance.id,
-            "sourceSha256": analysis.source_sha256,
-        }))?;
+        context.update_checkpoint(|checkpoint| {
+            checkpoint.insert("stage".into(), serde_json::json!("instance_created"));
+            checkpoint.insert("instanceId".into(), serde_json::json!(instance.id));
+            checkpoint.insert(
+                "sourceSha256".into(),
+                serde_json::json!(analysis.source_sha256),
+            );
+        })?;
         if let Err(error) = self.instances.install(instance.id, context).await {
             let _ = self.instances.delete(instance.id).await;
             return Err(error);

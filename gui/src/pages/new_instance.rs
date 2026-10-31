@@ -413,6 +413,7 @@ impl MzApp {
                 "provider": self.modpack_browser.provider,
                 "projectId": project.project_id,
                 "projectName": project.name,
+                "projectIconUrl": project.icon_url,
                 "gameVersion": optional_filter(&self.modpack_browser.game_version),
                 "loader": optional_filter(&self.modpack_browser.loader),
                 "name": Value::Null,

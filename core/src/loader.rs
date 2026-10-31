@@ -222,13 +222,12 @@ impl LoaderService {
             });
         }
         let work_for_scan = work.clone();
-        let profiles = tokio::task::spawn_blocking(move || find_profiles(&work_for_scan))
-            .await
-            .map_err(|error| CoreError::Internal(error.to_string()))??;
-        let profile = profiles.into_iter().next().ok_or_else(|| {
-            CoreError::InvalidInput("installer did not generate a client launch profile".into())
-        })?;
-        let details: VersionDetails = serde_json::from_slice(&tokio::fs::read(&profile).await?)?;
+        let game_version = instance.game_version.clone();
+        let details = tokio::task::spawn_blocking(move || {
+            load_installer_profile(&work_for_scan, &game_version)
+        })
+        .await
+        .map_err(|error| CoreError::Internal(error.to_string()))??;
         self.save_profile(&details, instance).await?;
         let generated_libraries = work.join("libraries");
         if generated_libraries.is_dir() {
@@ -327,6 +326,18 @@ fn find_profiles(root: &Path) -> CoreResult<Vec<PathBuf>> {
     Ok(profiles)
 }
 
+fn load_installer_profile(root: &Path, game_version: &str) -> CoreResult<VersionDetails> {
+    for profile in find_profiles(root)? {
+        let details: VersionDetails = serde_json::from_slice(&std::fs::read(profile)?)?;
+        if details.id != game_version && details.inherits_from.as_deref() == Some(game_version) {
+            return Ok(details);
+        }
+    }
+    Err(CoreError::InvalidInput(
+        "installer did not generate a client launch profile for the game version".into(),
+    ))
+}
+
 fn copy_generated_libraries(source: &Path, destination: &Path) -> CoreResult<()> {
     for entry in std::fs::read_dir(source)? {
         let entry = entry?;
@@ -372,5 +383,24 @@ mod tests {
         std::fs::write(directory.join("example-profile.json"), b"{}").unwrap();
         let profiles = find_profiles(temp.path()).unwrap();
         assert_eq!(profiles, vec![directory.join("example-profile.json")]);
+    }
+
+    #[test]
+    fn selects_loader_profile_instead_of_vanilla_profile() {
+        let temp = tempfile::tempdir().unwrap();
+        for (id, contents) in [
+            ("1.21.1", r#"{"id":"1.21.1"}"#),
+            (
+                "neoforge-21.1.265",
+                r#"{"id":"neoforge-21.1.265","inheritsFrom":"1.21.1"}"#,
+            ),
+        ] {
+            let directory = temp.path().join("versions").join(id);
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(directory.join(format!("{id}.json")), contents).unwrap();
+        }
+        let details = load_installer_profile(temp.path(), "1.21.1").unwrap();
+        assert_eq!(details.id, "neoforge-21.1.265");
+        assert_eq!(details.inherits_from.as_deref(), Some("1.21.1"));
     }
 }

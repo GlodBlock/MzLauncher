@@ -260,6 +260,7 @@
     "action.install": "安装",
     "action.more": "更多",
     "action.repair": "修复",
+    "action.retry_install": "重试安装",
     "action.open_directory": "打开目录",
     "instances.last_launch": "最近启动：{time}",
     "instances.play_time": "累计时长：{time}",

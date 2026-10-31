@@ -163,6 +163,7 @@ impl MzApp {
         project: Option<&crate::model::ModProject>,
         job: Option<&Job>,
     ) {
+        let mut retry = None;
         crate::card_frame(ui).show(ui, |ui| {
             let width = ui.available_width();
             ui.set_min_width(width);
@@ -221,9 +222,22 @@ impl MzApp {
                     matches!(job.status.as_str(), "queued" | "running" | "cancelling")
                 }) {
                     ui.spinner();
+                } else if let Some(job) =
+                    job.filter(|job| matches!(job.status.as_str(), "failed" | "interrupted"))
+                {
+                    if ui
+                        .button("↻")
+                        .on_hover_text(self.tr("action.retry_install"))
+                        .clicked()
+                    {
+                        retry = Some(job.id.clone());
+                    }
                 }
             });
         });
+        if let Some(job_id) = retry {
+            self.retry_modpack_install(&job_id);
+        }
     }
 
     fn instance_row(&mut self, ui: &mut egui::Ui, instance: &Instance) {

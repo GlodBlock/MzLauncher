@@ -394,31 +394,67 @@ impl MzApp {
     }
 
     fn install_modpack(&mut self, project: ModProject) {
-        self.modpack_browser
-            .requested
-            .insert(project.project_id.clone());
-        self.installing_modpacks
-            .push(crate::app::InstallingModpack {
-                project: project.clone(),
+        let existing_job = self
+            .installing_modpacks
+            .iter()
+            .find(|install| install.project.project_id == project.project_id)
+            .and_then(|install| install.job_id.clone());
+        if let Some(job_id) = existing_job {
+            self.retry_modpack_install(&job_id);
+        } else {
+            let install = crate::app::InstallingModpack {
+                project,
                 game_version: self.modpack_browser.game_version.clone(),
                 loader: self.modpack_browser.loader.clone(),
                 job_id: None,
-            });
+            };
+            self.modpack_browser
+                .requested
+                .insert(install.project.project_id.clone());
+            self.installing_modpacks.push(install.clone());
+            self.submit_modpack_install(&install);
+        }
         self.create = None;
         self.page = crate::app::Page::Instances;
         self.selected_instance = None;
+    }
+
+    pub(crate) fn retry_modpack_install(&mut self, job_id: &str) {
+        let Some(install) = self
+            .installing_modpacks
+            .iter()
+            .find(|install| install.job_id.as_deref() == Some(job_id))
+            .cloned()
+        else {
+            return;
+        };
+        self.modpack_browser.install_jobs.remove(job_id);
+        self.modpack_browser
+            .requested
+            .insert(install.project.project_id.clone());
+        if let Some(current) = self
+            .installing_modpacks
+            .iter_mut()
+            .find(|current| current.job_id.as_deref() == Some(job_id))
+        {
+            current.job_id = None;
+        }
+        self.submit_modpack_install(&install);
+    }
+
+    fn submit_modpack_install(&mut self, install: &crate::app::InstallingModpack) {
         self.call(
             "modpack.install",
             json!({
-                "provider": self.modpack_browser.provider,
-                "projectId": project.project_id,
-                "projectName": project.name,
-                "projectIconUrl": project.icon_url,
-                "gameVersion": optional_filter(&self.modpack_browser.game_version),
-                "loader": optional_filter(&self.modpack_browser.loader),
+                "provider": install.project.provider,
+                "projectId": install.project.project_id,
+                "projectName": install.project.name,
+                "projectIconUrl": install.project.icon_url,
+                "gameVersion": optional_filter(&install.game_version),
+                "loader": optional_filter(&install.loader),
                 "name": Value::Null,
             }),
-            json!({"projectId": project.project_id}),
+            json!({"projectId": install.project.project_id}),
         );
     }
 

@@ -118,7 +118,7 @@ impl InstallingModpack {
         if job.kind != "import"
             || !matches!(
                 job.status.as_str(),
-                "queued" | "running" | "cancelling" | "interrupted"
+                "queued" | "running" | "cancelling" | "interrupted" | "failed"
             )
         {
             return None;
@@ -520,8 +520,11 @@ impl MzApp {
                         "succeeded" | "failed" | "cancelled" | "interrupted"
                     );
                     if terminal {
-                        self.installing_modpacks
-                            .retain(|install| install.job_id.as_deref() != Some(job.id.as_str()));
+                        if matches!(job.status.as_str(), "succeeded" | "cancelled") {
+                            self.installing_modpacks.retain(|install| {
+                                install.job_id.as_deref() != Some(job.id.as_str())
+                            });
+                        }
                         if let Some(project) = self.modpack_browser.install_jobs.remove(&job.id) {
                             self.modpack_browser.requested.remove(&project);
                         }
@@ -649,11 +652,21 @@ impl MzApp {
             "job.list" => {
                 self.jobs = parse_list(result);
                 self.jobs.reverse();
-                self.installing_modpacks = self
+                let mut installs = Vec::new();
+                for install in self
                     .jobs
                     .iter()
+                    .rev()
                     .filter_map(InstallingModpack::from_job)
-                    .collect();
+                {
+                    if !installs.iter().any(|existing: &InstallingModpack| {
+                        existing.project.provider == install.project.provider
+                            && existing.project.project_id == install.project.project_id
+                    }) {
+                        installs.push(install);
+                    }
+                }
+                self.installing_modpacks = installs;
                 self.request_missing_modpack_icons();
             }
             "settings.get" | "settings.update" | "settings.reset" => {
@@ -859,9 +872,11 @@ impl MzApp {
                         if terminal {
                             self.modpack_browser.requested.remove(project);
                             self.modpack_browser.install_jobs.remove(&job.id);
-                            self.installing_modpacks.retain(|install| {
-                                install.job_id.as_deref() != Some(job.id.as_str())
-                            });
+                            if matches!(job.status.as_str(), "succeeded" | "cancelled") {
+                                self.installing_modpacks.retain(|install| {
+                                    install.job_id.as_deref() != Some(job.id.as_str())
+                                });
+                            }
                         }
                     }
                     self.merge_job(job);
@@ -1069,6 +1084,9 @@ mod tests {
                 }
             })),
         };
+        let mut failed = job.clone();
+        failed.status = "failed".into();
+        assert!(InstallingModpack::from_job(&failed).is_some());
         let install = InstallingModpack::from_job(&job).unwrap();
         assert_eq!(install.job_id.as_deref(), Some("job-1"));
         assert_eq!(install.project.project_id, "925200");

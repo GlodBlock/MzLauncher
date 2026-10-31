@@ -38,6 +38,7 @@ async fn main() -> anyhow::Result<()> {
         .open(paths.logs.join("core.log"))?;
     let writer = Arc::new(Mutex::new(file));
     tracing_subscriber::fmt()
+        .with_ansi(false)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),

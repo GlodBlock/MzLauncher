@@ -177,6 +177,7 @@ impl LoaderService {
             .temp
             .join(format!("loader-{}", uuid::Uuid::new_v4()));
         tokio::fs::create_dir_all(&work).await?;
+        atomic_write(&work.join("launcher_profiles.json"), br#"{"profiles":{}}"#)?;
         let installer = work.join("installer.jar");
         self.downloader
             .download(

@@ -45,46 +45,37 @@ impl MzApp {
             .map(|create| create.tab)
             .unwrap_or(NewInstanceTab::CurseForge);
         let mut selected_tab = None;
-        let content_height = ui.available_height();
-        ui.horizontal(|ui| {
-            ui.allocate_ui_with_layout(
-                egui::vec2(SIDEBAR_WIDTH, content_height),
-                egui::Layout::top_down(egui::Align::LEFT),
-                |ui| {
-                    for source in [
-                        NewInstanceTab::CurseForge,
-                        NewInstanceTab::Ftb,
-                        NewInstanceTab::Modrinth,
-                        NewInstanceTab::Custom,
-                    ] {
-                        let label = match source {
-                            NewInstanceTab::CurseForge => "CurseForge".into(),
-                            NewInstanceTab::Ftb => "FTB".into(),
-                            NewInstanceTab::Modrinth => "Modrinth".into(),
-                            NewInstanceTab::Custom => self.tr("create.custom"),
-                        };
-                        if ui
-                            .add_sized(
-                                [ui.available_width(), SOURCE_BUTTON_HEIGHT],
-                                egui::SelectableLabel::new(tab == source, label),
-                            )
-                            .clicked()
-                        {
-                            selected_tab = Some(source);
-                        }
-                        ui.add_space(crate::layout::CARD_LIST_GAP);
+        egui::SidePanel::left("new_instance_sources")
+            .resizable(false)
+            .exact_width(SIDEBAR_WIDTH)
+            .show_inside(ui, |ui| {
+                for source in [
+                    NewInstanceTab::CurseForge,
+                    NewInstanceTab::Ftb,
+                    NewInstanceTab::Modrinth,
+                    NewInstanceTab::Custom,
+                ] {
+                    let label = match source {
+                        NewInstanceTab::CurseForge => "CurseForge".into(),
+                        NewInstanceTab::Ftb => "FTB".into(),
+                        NewInstanceTab::Modrinth => "Modrinth".into(),
+                        NewInstanceTab::Custom => self.tr("create.custom"),
+                    };
+                    if ui
+                        .add_sized(
+                            [ui.available_width(), SOURCE_BUTTON_HEIGHT],
+                            egui::SelectableLabel::new(tab == source, label),
+                        )
+                        .clicked()
+                    {
+                        selected_tab = Some(source);
                     }
-                },
-            );
-            ui.separator();
-            ui.allocate_ui_with_layout(
-                egui::vec2(ui.available_width(), content_height),
-                egui::Layout::top_down(egui::Align::LEFT),
-                |ui| match tab {
-                    NewInstanceTab::Custom => self.custom_instance_form(ui),
-                    _ => self.modpack_browser(ui),
-                },
-            );
+                    ui.add_space(crate::layout::CARD_LIST_GAP);
+                }
+            });
+        egui::CentralPanel::default().show_inside(ui, |ui| match tab {
+            NewInstanceTab::Custom => self.custom_instance_form(ui),
+            _ => self.modpack_browser(ui),
         });
         if let Some(tab) = selected_tab {
             self.select_new_instance_tab(tab);

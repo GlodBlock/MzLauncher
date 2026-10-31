@@ -128,48 +128,96 @@ impl MzApp {
         let mut import = false;
         let spacing = ui.spacing().item_spacing.x;
         let busy = self.modpack_browser.searching || self.modpack.analyzing;
-        let busy_width = if busy {
-            ACTION_BUTTON_SIZE.x + spacing
-        } else {
-            0.0
-        };
+        let (toolbar_rect, _) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), ACTION_BUTTON_SIZE.y),
+            egui::Sense::hover(),
+        );
         let fields_width =
-            (ui.available_width() - ACTION_BUTTON_SIZE.x * 2.0 - spacing * 4.0 - busy_width)
-                .max(0.0);
+            (toolbar_rect.width() - ACTION_BUTTON_SIZE.x * 2.0 - spacing * 4.0).max(0.0);
         let filter_width = (fields_width / 3.0).min(FILTER_COMBO_WIDTH);
         let search_width = (fields_width - filter_width * 2.0).max(0.0);
         let search_hint = self.tr("create.search_hint");
-        ui.horizontal(|ui| {
-            ui.spacing_mut().interact_size.y = ACTION_BUTTON_SIZE.y;
-            let response = ui.add(
-                egui::TextEdit::singleline(&mut self.modpack_browser.query)
-                    .desired_width(search_width)
-                    .min_size(egui::vec2(search_width, ACTION_BUTTON_SIZE.y))
-                    .hint_text(search_hint),
-            );
-            if response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
-                search = true;
-            }
-            if action_icon_button(ui, ActionIcon::Search, &self.tr("create.search"), true).clicked()
-            {
-                search = true;
-            }
-            self.modpack_game_filter(ui, filter_width, &mut search);
-            self.modpack_loader_filter(ui, filter_width, &mut search);
-            if action_icon_button(
-                ui,
-                ActionIcon::Import,
-                &self.tr("action.import_modpack"),
-                !self.modpack.analyzing && !self.modpack.importing,
-            )
-            .clicked()
-            {
-                import = true;
-            }
-            if busy {
-                ui.add_sized(ACTION_BUTTON_SIZE, egui::Spinner::new());
-            }
-        });
+        let mut left = toolbar_rect.left();
+        let search_rect = egui::Rect::from_min_size(
+            egui::pos2(left, toolbar_rect.top()),
+            egui::vec2(search_width, ACTION_BUTTON_SIZE.y),
+        );
+        let mut search_ui = ui.new_child(egui::UiBuilder::new().max_rect(search_rect));
+        let response = search_ui.add(
+            egui::TextEdit::singleline(&mut self.modpack_browser.query)
+                .desired_width(search_width)
+                .min_size(egui::vec2(search_width, ACTION_BUTTON_SIZE.y))
+                .vertical_align(egui::Align::Center)
+                .hint_text(search_hint),
+        );
+        if response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
+            search = true;
+        }
+
+        left += search_width + spacing;
+        let search_button_rect =
+            egui::Rect::from_min_size(egui::pos2(left, toolbar_rect.top()), ACTION_BUTTON_SIZE);
+        let mut search_button_ui =
+            ui.new_child(egui::UiBuilder::new().max_rect(search_button_rect).layout(
+                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+            ));
+        if action_icon_button(
+            &mut search_button_ui,
+            ActionIcon::Search,
+            &self.tr("create.search"),
+            true,
+        )
+        .clicked()
+        {
+            search = true;
+        }
+
+        left += ACTION_BUTTON_SIZE.x + spacing;
+        let game_filter_rect = egui::Rect::from_min_size(
+            egui::pos2(left, toolbar_rect.top()),
+            egui::vec2(filter_width, ACTION_BUTTON_SIZE.y),
+        );
+        let mut game_filter_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(game_filter_rect)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        game_filter_ui.spacing_mut().interact_size.y = ACTION_BUTTON_SIZE.y;
+        self.modpack_game_filter(&mut game_filter_ui, filter_width, &mut search);
+
+        left += filter_width + spacing;
+        let loader_filter_rect = egui::Rect::from_min_size(
+            egui::pos2(left, toolbar_rect.top()),
+            egui::vec2(filter_width, ACTION_BUTTON_SIZE.y),
+        );
+        let mut loader_filter_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(loader_filter_rect)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        loader_filter_ui.spacing_mut().interact_size.y = ACTION_BUTTON_SIZE.y;
+        self.modpack_loader_filter(&mut loader_filter_ui, filter_width, &mut search);
+
+        let import_rect = egui::Rect::from_min_size(
+            egui::pos2(
+                toolbar_rect.right() - ACTION_BUTTON_SIZE.x,
+                toolbar_rect.top(),
+            ),
+            ACTION_BUTTON_SIZE,
+        );
+        let mut import_ui = ui.new_child(egui::UiBuilder::new().max_rect(import_rect).layout(
+            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+        ));
+        if action_icon_button(
+            &mut import_ui,
+            ActionIcon::Import,
+            &self.tr("action.import_modpack"),
+            !self.modpack.analyzing && !self.modpack.importing,
+        )
+        .clicked()
+        {
+            import = true;
+        }
         if search {
             self.search_modpacks();
         }
@@ -185,14 +233,24 @@ impl MzApp {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                if results.is_empty() && !self.modpack_browser.searching {
-                    ui.label(self.tr("create.modpack_empty"));
-                }
-                for project in results {
-                    if let Some(installed) = modpack_row(ui, &project, &requested, self) {
-                        install = Some(installed);
+                if busy && results.is_empty() {
+                    ui.allocate_ui_with_layout(
+                        ui.available_size(),
+                        egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                        |ui| {
+                            ui.spinner();
+                        },
+                    );
+                } else {
+                    if results.is_empty() {
+                        ui.label(self.tr("create.modpack_empty"));
                     }
-                    ui.add_space(crate::layout::CARD_LIST_GAP);
+                    for project in results {
+                        if let Some(installed) = modpack_row(ui, &project, &requested, self) {
+                            install = Some(installed);
+                        }
+                        ui.add_space(crate::layout::CARD_LIST_GAP);
+                    }
                 }
             });
         if let Some(project) = install {
@@ -551,53 +609,73 @@ fn modpack_row(
 ) -> Option<ModProject> {
     let mut install = None;
     crate::card_frame(ui).show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        ui.horizontal(|ui| {
-            modpack_icon(ui, project);
-            let spacing = ui.spacing().item_spacing.x;
-            let info_width = (ui.available_width() - ACTION_BUTTON_SIZE.x - spacing).max(0.0);
-            ui.allocate_ui_with_layout(
-                egui::vec2(info_width, MODPACK_ROW_HEIGHT),
-                egui::Layout::top_down(egui::Align::LEFT),
-                |ui| {
-                    ui.add(
-                        egui::Label::new(egui::RichText::new(&project.name).size(16.0).strong())
-                            .truncate(),
-                    );
-                    let versions = if project.game_versions.is_empty() {
-                        "—".into()
-                    } else {
-                        project.game_versions.join(", ")
-                    };
-                    let loaders = project
-                        .loaders
-                        .iter()
-                        .map(|loader| app.tr(loader_key(loader)))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    ui.add(egui::Label::new(format!("{versions} · {loaders}")).truncate());
-                    ui.add(egui::Label::new(&project.summary).truncate());
-                },
-            );
-            ui.allocate_ui_with_layout(
-                egui::vec2(ACTION_BUTTON_SIZE.x, MODPACK_ROW_HEIGHT),
-                egui::Layout::right_to_left(egui::Align::Center),
-                |ui| {
-                    if requested.contains(&project.project_id) {
-                        ui.spinner();
-                    } else if action_icon_button(
-                        ui,
-                        ActionIcon::Download,
-                        &app.tr("action.install"),
-                        true,
-                    )
-                    .clicked()
-                    {
-                        install = Some(project.clone());
-                    }
-                },
-            );
-        });
+        let row_width = ui.available_width();
+        ui.set_width(row_width);
+        let (row_rect, _) = ui.allocate_exact_size(
+            egui::vec2(row_width, MODPACK_ROW_HEIGHT),
+            egui::Sense::hover(),
+        );
+        let spacing = ui.spacing().item_spacing.x;
+        let icon_rect = egui::Rect::from_center_size(
+            egui::pos2(
+                row_rect.left() + MODPACK_ICON_SIZE.x / 2.0,
+                row_rect.center().y,
+            ),
+            MODPACK_ICON_SIZE,
+        );
+        let mut icon_ui = ui.new_child(egui::UiBuilder::new().max_rect(icon_rect));
+        modpack_icon(&mut icon_ui, project);
+
+        let action_rect = egui::Rect::from_center_size(
+            egui::pos2(
+                row_rect.right() - ACTION_BUTTON_SIZE.x / 2.0,
+                row_rect.center().y,
+            ),
+            ACTION_BUTTON_SIZE,
+        );
+        let info_left = icon_rect.right() + spacing;
+        let info_right = (action_rect.left() - spacing).max(info_left);
+        let info_rect = egui::Rect::from_min_max(
+            egui::pos2(info_left, row_rect.top()),
+            egui::pos2(info_right, row_rect.bottom()),
+        );
+        let mut info_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(info_rect)
+                .layout(egui::Layout::top_down(egui::Align::LEFT)),
+        );
+        info_ui.add(
+            egui::Label::new(egui::RichText::new(&project.name).size(16.0).strong()).truncate(),
+        );
+        let versions = if project.game_versions.is_empty() {
+            "—".into()
+        } else {
+            project.game_versions.join(", ")
+        };
+        let loaders = project
+            .loaders
+            .iter()
+            .map(|loader| app.tr(loader_key(loader)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        info_ui.add(egui::Label::new(format!("{versions} · {loaders}")).truncate());
+        info_ui.add(egui::Label::new(&project.summary).truncate());
+
+        let mut action_ui = ui.new_child(egui::UiBuilder::new().max_rect(action_rect).layout(
+            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+        ));
+        if requested.contains(&project.project_id) {
+            action_ui.spinner();
+        } else if action_icon_button(
+            &mut action_ui,
+            ActionIcon::Download,
+            &app.tr("action.install"),
+            true,
+        )
+        .clicked()
+        {
+            install = Some(project.clone());
+        }
     });
     install
 }

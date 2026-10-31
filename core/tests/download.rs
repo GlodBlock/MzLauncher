@@ -60,6 +60,41 @@ async fn restarts_when_server_ignores_range() {
 }
 
 #[tokio::test]
+async fn restarts_when_resume_range_returns_not_found() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let request = read_request(&mut socket).await;
+        assert!(request.to_ascii_lowercase().contains("range: bytes=6-"));
+        socket
+            .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
+            .await
+            .unwrap();
+        drop(socket);
+
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let request = read_request(&mut socket).await;
+        assert!(!request.to_ascii_lowercase().contains("range:"));
+        socket
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nhello world")
+            .await
+            .unwrap();
+    });
+    let temp = tempfile::tempdir().unwrap();
+    let destination = temp.path().join("file.bin");
+    let url = format!("http://{address}/file");
+    write_partial(&destination, &url, b"stale!").await;
+    let downloader = Downloader::new(DownloadConfig::default()).unwrap();
+    downloader
+        .download(spec(&url, &destination, 11), None)
+        .await
+        .unwrap();
+    assert_eq!(tokio::fs::read(destination).await.unwrap(), b"hello world");
+    server.await.unwrap();
+}
+
+#[tokio::test]
 async fn never_commits_checksum_mismatch() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();

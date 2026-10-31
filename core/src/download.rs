@@ -273,8 +273,15 @@ impl Downloader {
             }
         }
         let response = request.send().await.map_err(network_error)?;
-        if response.status() == StatusCode::RANGE_NOT_SATISFIABLE && offset > 0 {
-            if spec.size == Some(offset) && file_matches(partial, spec).await? {
+        if matches!(
+            response.status(),
+            StatusCode::RANGE_NOT_SATISFIABLE | StatusCode::NOT_FOUND
+        ) && offset > 0
+        {
+            if response.status() == StatusCode::RANGE_NOT_SATISFIABLE
+                && spec.size == Some(offset)
+                && file_matches(partial, spec).await?
+            {
                 return Ok(());
             }
             reset_partial(partial).await?;

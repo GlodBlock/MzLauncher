@@ -29,6 +29,19 @@ impl CurseForge {
         })
     }
 
+    pub async fn changelog(&self, project_id: &str, file_id: &str) -> CoreResult<String> {
+        let response: DataResponse<String> = super::send_json(
+            self.request(
+                reqwest::Method::GET,
+                &format!("/mods/{project_id}/files/{file_id}/changelog"),
+            )?,
+            "curseforge",
+            self.downloader.max_retries(),
+        )
+        .await?;
+        Ok(plain_text_changelog(&response.data))
+    }
+
     pub async fn project_names(
         &self,
         project_ids: &[String],
@@ -306,6 +319,58 @@ fn into_mod_file(file: FileResponse) -> CoreResult<ModFile> {
         published_at: Some(file.file_date),
         distribution_allowed: file.download_url.is_some(),
     })
+}
+
+fn plain_text_changelog(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut rest = input;
+    while let Some(start) = rest.find('<') {
+        output.push_str(&rest[..start]);
+        let Some(end) = rest[start..].find('>') else {
+            output.push_str(&rest[start..]);
+            rest = "";
+            break;
+        };
+        let raw_tag = rest[start + 1..start + end].trim();
+        let closing = raw_tag.starts_with('/');
+        let tag = raw_tag
+            .trim_start_matches('/')
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if matches!(
+            tag.as_str(),
+            "br" | "p" | "div" | "ul" | "ol" | "h1" | "h2" | "h3"
+        ) || (tag == "li" && !closing)
+        {
+            output.push('\n');
+        }
+        rest = &rest[start + end + 1..];
+    }
+    output.push_str(rest);
+    let text = output
+        .replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&");
+    let mut normalized = String::with_capacity(text.len());
+    let mut previous_blank = false;
+    for line in text.lines().map(str::trim) {
+        if line.is_empty() {
+            if previous_blank {
+                continue;
+            }
+            previous_blank = true;
+        } else {
+            previous_blank = false;
+        }
+        normalized.push_str(line);
+        normalized.push('\n');
+    }
+    normalized.trim().to_owned()
 }
 
 fn loader_type(loader: LoaderKind) -> &'static str {

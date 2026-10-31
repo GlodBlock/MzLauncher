@@ -160,6 +160,7 @@
     "create.title": "新建实例",
     "create.select_modpack_version": "选择整合包版本",
     "create.no_modpack_versions": "没有匹配的版本。",
+    "create.no_update_logs": "暂无更新日志",
     "create.custom": "自定义",
     "create.search_hint": "搜索整合包",
     "create.search": "搜索",

@@ -37,6 +37,14 @@ pub struct ModpackVersionParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ModpackChangelogParams {
+    pub provider: ModProvider,
+    pub project_id: String,
+    pub file_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ModpackDownloadParams {
     pub provider: ModProvider,
     pub project_id: String,
@@ -147,6 +155,20 @@ impl ModpackBrowserService {
         };
         files.sort_by(|left, right| right.published_at.cmp(&left.published_at));
         Ok(files)
+    }
+
+    pub async fn changelog(&self, params: &ModpackChangelogParams) -> CoreResult<String> {
+        validate_remote_id(&params.project_id)?;
+        validate_remote_id(&params.file_id)?;
+        match params.provider {
+            ModProvider::CurseForge => {
+                self.mods
+                    .curseforge_changelog(&params.project_id, &params.file_id)
+                    .await
+            }
+            ModProvider::Ftb | ModProvider::Modrinth => Ok(String::new()),
+            _ => Err(CoreError::InvalidInput("invalid modpack provider".into())),
+        }
     }
 
     pub async fn fetch(

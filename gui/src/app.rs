@@ -111,6 +111,8 @@ pub struct ModpackVersionSelection {
     pub versions: Vec<ModFile>,
     pub selected: Option<String>,
     pub loading: bool,
+    pub changelog: String,
+    pub changelog_loading: bool,
 }
 
 #[derive(Clone)]
@@ -518,6 +520,20 @@ impl MzApp {
                     }
                 }
             }
+            "modpack.changelog" => {
+                if let Some(selection) = &mut self.modpack_version_selection {
+                    let matches = pending.context.get("projectId").and_then(Value::as_str)
+                        == Some(selection.project.project_id.as_str())
+                        && pending.context.get("provider").and_then(Value::as_str)
+                            == Some(selection.project.provider.as_str())
+                        && pending.context.get("fileId").and_then(Value::as_str)
+                            == selection.selected.as_deref();
+                    if matches {
+                        selection.changelog.clear();
+                        selection.changelog_loading = false;
+                    }
+                }
+            }
             "modpack.analyze" => self.modpack.analyzing = false,
             "modpack.import" => self.modpack.importing = false,
             "modpack.install" => {
@@ -545,7 +561,10 @@ impl MzApp {
             _ => {}
         }
         crate::log::write(&format!("{} failed: {message} ({code})", pending.method));
-        if !matches!(pending.method.as_str(), "account.skin" | "modpack.icon") {
+        if !matches!(
+            pending.method.as_str(),
+            "account.skin" | "modpack.icon" | "modpack.changelog"
+        ) {
             self.notice =
                 Some(self.trf("notice.request_failed_log", &[("method", &pending.method)]));
         }
@@ -869,6 +888,7 @@ impl MzApp {
                 }
             }
             "modpack.versions" => {
+                let mut changelog_request = None;
                 if let Some(selection) = &mut self.modpack_version_selection {
                     let matches = pending.context.get("projectId").and_then(Value::as_str)
                         == Some(selection.project.project_id.as_str())
@@ -881,6 +901,27 @@ impl MzApp {
                             .first()
                             .map(|version| version.file_id.clone());
                         selection.loading = false;
+                        changelog_request = selection
+                            .selected
+                            .clone()
+                            .map(|file_id| (selection.project.clone(), file_id));
+                    }
+                }
+                if let Some((project, file_id)) = changelog_request {
+                    self.request_modpack_changelog(project, file_id);
+                }
+            }
+            "modpack.changelog" => {
+                if let Some(selection) = &mut self.modpack_version_selection {
+                    let matches = pending.context.get("projectId").and_then(Value::as_str)
+                        == Some(selection.project.project_id.as_str())
+                        && pending.context.get("provider").and_then(Value::as_str)
+                            == Some(selection.project.provider.as_str())
+                        && pending.context.get("fileId").and_then(Value::as_str)
+                            == selection.selected.as_deref();
+                    if matches {
+                        selection.changelog = result.as_str().unwrap_or_default().trim().to_owned();
+                        selection.changelog_loading = false;
                     }
                 }
             }

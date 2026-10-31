@@ -128,9 +128,29 @@ impl MzApp {
                                     );
                                 }
                             });
+                        let selection_changed = selected != selection.selected;
                         if let Some(current) = &mut self.modpack_version_selection {
-                            current.selected = selected;
+                            current.selected = selected.clone();
                         }
+                        if selection_changed {
+                            if let Some(file_id) = selected {
+                                self.request_modpack_changelog(selection.project.clone(), file_id);
+                            }
+                        }
+                        ui.add_space(crate::layout::SECTION_GAP);
+                        egui::ScrollArea::vertical()
+                            .id_salt("modpack_changelog")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                ui.set_min_width(ui.available_width());
+                                if selection.changelog_loading {
+                                    ui.spinner();
+                                } else if selection.changelog.is_empty() {
+                                    ui.label(self.tr("create.no_update_logs"));
+                                } else {
+                                    ui.label(&selection.changelog);
+                                }
+                            });
                     }
                 });
                 if ctx.input(|input| input.viewport().close_requested()) {
@@ -431,6 +451,8 @@ impl MzApp {
             versions: Vec::new(),
             selected: None,
             loading: true,
+            changelog: String::new(),
+            changelog_loading: false,
         });
         self.call(
             "modpack.versions",
@@ -443,6 +465,26 @@ impl MzApp {
             json!({
                 "provider": project.provider,
                 "projectId": project.project_id,
+            }),
+        );
+    }
+
+    pub(crate) fn request_modpack_changelog(&mut self, project: ModProject, file_id: String) {
+        if let Some(selection) = &mut self.modpack_version_selection {
+            selection.changelog.clear();
+            selection.changelog_loading = true;
+        }
+        self.call(
+            "modpack.changelog",
+            json!({
+                "provider": project.provider,
+                "projectId": project.project_id,
+                "fileId": file_id,
+            }),
+            json!({
+                "provider": project.provider,
+                "projectId": project.project_id,
+                "fileId": file_id,
             }),
         );
     }

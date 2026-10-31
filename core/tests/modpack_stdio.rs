@@ -298,6 +298,104 @@ fn searches_modrinth_by_downloads_with_provider_offsets() {
 }
 
 #[test]
+fn fetches_curseforge_modpack_changelog() {
+    use std::io::Read;
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        for file_id in [500, 501] {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 4096];
+            let read = stream.read(&mut request).unwrap();
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(
+                request.starts_with(&format!("GET /v1/mods/125/files/{file_id}/changelog ")),
+                "{request}"
+            );
+            assert!(request
+                .to_ascii_lowercase()
+                .contains("x-api-key: test-key\r\n"));
+            let data = if file_id == 500 {
+                "<p>Added features &amp; fixes</p><ul><li>First</li><li>Second</li></ul>"
+            } else {
+                "  "
+            };
+            let body = json!({"data": data}).to_string();
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        }
+    });
+
+    let temp = tempfile::tempdir().unwrap();
+    let data = temp.path().join("data");
+    let paths = mzlauncher_core::paths::AppPaths::new(data.clone());
+    paths.initialize().unwrap();
+    let mut config = mzlauncher_core::config::AppConfig::default();
+    config.endpoints.curseforge_api = format!("http://{address}/v1");
+    std::fs::write(
+        paths.config_file(),
+        serde_json::to_vec_pretty(&config).unwrap(),
+    )
+    .unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mzlauncher-core"))
+        .arg("--data-dir")
+        .arg(data)
+        .env("MZLAUNCHER_CURSEFORGE_API_KEY", "test-key")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut client = Client {
+        stdin: child.stdin.take().unwrap(),
+        stdout: BufReader::new(child.stdout.take().unwrap()),
+    };
+    client.call(
+        "hello",
+        "system.handshake",
+        json!({"clientVersion": "test", "minProtocol": 2, "maxProtocol": 2}),
+    );
+    let response = client.call(
+        "changelog",
+        "modpack.changelog",
+        json!({"provider":"curse_forge","projectId":"125","fileId":"500"}),
+    );
+    assert!(response["error"].is_null(), "changelog failed: {response}");
+    assert_eq!(
+        response["result"],
+        "Added features & fixes\n\nFirst\nSecond"
+    );
+    let empty = client.call(
+        "empty",
+        "modpack.changelog",
+        json!({"provider":"curse_forge","projectId":"125","fileId":"501"}),
+    );
+    assert_eq!(empty["result"], "");
+    let unsupported = client.call(
+        "unsupported",
+        "modpack.changelog",
+        json!({"provider":"modrinth","projectId":"pack","fileId":"version"}),
+    );
+    assert_eq!(unsupported["result"], "");
+    let invalid = client.call(
+        "invalid",
+        "modpack.changelog",
+        json!({"provider":"curse_forge","projectId":"../125","fileId":"500"}),
+    );
+    assert_eq!(invalid["error"]["code"], "invalid_input");
+    client.call("stop", "system.shutdown", Value::Null);
+    drop(client);
+    assert!(child.wait().unwrap().success());
+    server.join().unwrap();
+}
+
+#[test]
 fn downloads_and_caches_modpack_icons() {
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;

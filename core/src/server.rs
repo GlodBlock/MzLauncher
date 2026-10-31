@@ -551,6 +551,13 @@ impl Server {
                     self.modpacks.versions(&params).await?,
                 )?)
             }
+            "modpack.changelog" => {
+                let params: crate::modpack_browser::ModpackChangelogParams =
+                    parse_params(&request.params)?;
+                Ok(serde_json::to_value(
+                    self.modpacks.changelog(&params).await?,
+                )?)
+            }
             "modpack.icon" => {
                 let params: crate::modpack_browser::ModpackIconParams =
                     parse_params(&request.params)?;

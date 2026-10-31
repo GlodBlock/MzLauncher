@@ -160,6 +160,7 @@
     "create.title": "New Instance",
     "create.select_modpack_version": "Select Modpack Version",
     "create.no_modpack_versions": "No matching versions.",
+    "create.no_update_logs": "No update logs",
     "create.custom": "Custom",
     "create.search_hint": "Search modpacks",
     "create.search": "Search",

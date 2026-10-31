@@ -230,6 +230,13 @@ impl ModpackService {
         self.browser.versions(params).await
     }
 
+    pub async fn changelog(
+        &self,
+        params: &crate::modpack_browser::ModpackChangelogParams,
+    ) -> CoreResult<String> {
+        self.browser.changelog(params).await
+    }
+
     pub async fn icon(&self, url: &str) -> CoreResult<String> {
         self.browser.icon(url).await
     }

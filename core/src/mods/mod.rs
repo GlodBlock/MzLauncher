@@ -179,6 +179,14 @@ impl ModService {
         self.provider(provider)?.file(project_id, file_id).await
     }
 
+    pub async fn curseforge_changelog(
+        &self,
+        project_id: &str,
+        file_id: &str,
+    ) -> CoreResult<String> {
+        self.curseforge.changelog(project_id, file_id).await
+    }
+
     pub async fn curseforge_project_names(
         &self,
         project_ids: &[String],

@@ -317,21 +317,7 @@ impl MzApp {
             .filter(|job| job.kind == "import" && job.status == "succeeded")
             .find(|job| job.instance_id() == Some(instance.id.as_str()))
             .and_then(InstallingModpack::project_from_job);
-        let retry_job = self
-            .jobs
-            .iter()
-            .find(|job| {
-                job.kind == "import"
-                    && job.status == "succeeded"
-                    && job.instance_id() == Some(instance.id.as_str())
-                    && job
-                        .result
-                        .as_ref()
-                        .and_then(|result| result.get("complete"))
-                        .and_then(Value::as_bool)
-                        == Some(false)
-            })
-            .map(|job| job.id.clone());
+        let retry_job = retry_modpack_job(&self.jobs, &instance.id).map(|job| job.id.clone());
         let running = matches!(
             self.games.get(&instance.id).map(String::as_str),
             Some("running" | "starting")
@@ -903,6 +889,20 @@ fn failed_modpack_entries(job: &Job) -> Vec<crate::model::ModpackEntryResult> {
         .collect()
 }
 
+fn retry_modpack_job<'a>(jobs: &'a [Job], instance_id: &str) -> Option<&'a Job> {
+    jobs.iter()
+        .find(|job| job.kind == "import" && job.instance_id() == Some(instance_id))
+        .filter(|job| {
+            job.status == "succeeded"
+                && job
+                    .result
+                    .as_ref()
+                    .and_then(|result| result.get("complete"))
+                    .and_then(Value::as_bool)
+                    == Some(false)
+        })
+}
+
 fn select_displayed_installation_job<'a>(
     jobs: &'a [Job],
     installing: &[InstallingModpack],
@@ -1082,6 +1082,29 @@ mod tests {
         let installing = vec![install_for(&job)];
 
         assert!(select_displayed_installation_job(&[job], &installing, "instance-1").is_none());
+    }
+
+    #[test]
+    fn complete_repair_hides_retry_from_older_incomplete_job() {
+        let mut repaired = import_job("repair-job", "succeeded");
+        repaired.result = Some(json!({"complete": true}));
+        let mut incomplete = import_job("incomplete-job", "succeeded");
+        incomplete.result = Some(json!({"complete": false}));
+
+        assert!(retry_modpack_job(&[repaired, incomplete], "instance-1").is_none());
+    }
+
+    #[test]
+    fn latest_incomplete_job_offers_retry() {
+        let mut incomplete = import_job("incomplete-job", "succeeded");
+        incomplete.result = Some(json!({"complete": false}));
+        let mut complete = import_job("complete-job", "succeeded");
+        complete.result = Some(json!({"complete": true}));
+
+        assert_eq!(
+            retry_modpack_job(&[incomplete, complete], "instance-1").map(|job| job.id.as_str()),
+            Some("incomplete-job")
+        );
     }
 
     #[test]

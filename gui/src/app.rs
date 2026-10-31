@@ -721,7 +721,6 @@ impl MzApp {
             }
             "job.list" => {
                 self.jobs = parse_list(result);
-                self.jobs.reverse();
                 self.installing_modpacks = restored_modpack_installs(&self.jobs);
                 self.request_missing_modpack_icons();
             }
@@ -1010,7 +1009,7 @@ impl MzApp {
 fn restored_modpack_installs(jobs: &[Job]) -> Vec<InstallingModpack> {
     let mut seen = std::collections::HashSet::new();
     let mut installs = Vec::new();
-    for job in jobs.iter().rev().filter(|job| job.kind == "import") {
+    for job in jobs.iter().filter(|job| job.kind == "import") {
         let Some(source) = job
             .checkpoint
             .as_ref()
@@ -1275,7 +1274,7 @@ mod tests {
         succeeded.id = "succeeded-job".into();
         succeeded.status = "succeeded".into();
 
-        let installs = restored_modpack_installs(&[interrupted, succeeded]);
+        let installs = restored_modpack_installs(&[succeeded, interrupted]);
         assert!(installs.is_empty());
     }
 }

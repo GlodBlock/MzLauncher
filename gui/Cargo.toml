@@ -17,7 +17,7 @@ directories = "6.0"
 chrono = "0.4"
 uuid = { version = "1.12", features = ["v4"] }
 base64 = "0.22"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 
 [build-dependencies]
 embed-resource = "3"

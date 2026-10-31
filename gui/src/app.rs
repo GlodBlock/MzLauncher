@@ -329,6 +329,9 @@ impl MzApp {
             .iter()
             .filter_map(|project| {
                 let url = project.icon_url.as_deref()?;
+                if url.trim().is_empty() {
+                    return None;
+                }
                 let key = modpack_icon_key(project);
                 self.modpack_icons
                     .needs_request(&key, url)

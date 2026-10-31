@@ -95,6 +95,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn decodes_gif_icons() {
+        let encoded = "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+        let mut cache = ModpackIconCache::default();
+        cache.begin_request("gif", "https://example.com/icon.gif");
+        cache.complete("gif", encoded).unwrap();
+        assert_eq!(cache.entries["gif"].image.as_ref().unwrap().size, [1, 1]);
+    }
+
+    #[test]
     fn decodes_icons_and_tracks_source_urls() {
         let encoded = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
         let url = "https://example.com/icon.png";

@@ -412,7 +412,7 @@ impl MzApp {
                 .requested
                 .insert(install.project.project_id.clone());
             self.installing_modpacks.push(install.clone());
-            self.submit_modpack_install(&install);
+            self.submit_modpack_install(&install, false);
         }
         self.create = None;
         self.page = crate::app::Page::Instances;
@@ -439,10 +439,14 @@ impl MzApp {
         {
             current.job_id = None;
         }
-        self.submit_modpack_install(&install);
+        self.submit_modpack_install(&install, true);
     }
 
-    fn submit_modpack_install(&mut self, install: &crate::app::InstallingModpack) {
+    fn submit_modpack_install(
+        &mut self,
+        install: &crate::app::InstallingModpack,
+        show_details: bool,
+    ) {
         self.call(
             "modpack.install",
             json!({
@@ -455,7 +459,7 @@ impl MzApp {
                 "name": Value::Null,
                 "instanceId": install.instance_id,
             }),
-            json!({"projectId": install.project.project_id}),
+            json!({"projectId": install.project.project_id, "showDetails": show_details}),
         );
     }
 

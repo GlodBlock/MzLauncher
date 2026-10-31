@@ -885,6 +885,14 @@ impl MzApp {
                             }
                         }
                     }
+                    if pending
+                        .context
+                        .get("showDetails")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                    {
+                        self.install_details_job = Some(job.id.clone());
+                    }
                     self.merge_job(job);
                 } else if let Some(project) =
                     pending.context.get("projectId").and_then(Value::as_str)

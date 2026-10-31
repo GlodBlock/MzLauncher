@@ -109,6 +109,7 @@
     "install_details.title": "下载详情",
     "install_details.current": "正在下载（{count}）",
     "install_details.pending": "等待下载（{count}）",
+    "install_details.failed": "下载失败（{count}）",
     "install_details.empty": "无",
     "install_details.close": "关闭",
 

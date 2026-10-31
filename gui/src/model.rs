@@ -253,6 +253,14 @@ pub struct InstalledMod {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ModpackEntryResult {
+    pub name: String,
+    pub status: String,
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ModpackAnalysis {
     pub format: String,
     pub name: String,

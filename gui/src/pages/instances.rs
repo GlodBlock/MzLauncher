@@ -491,9 +491,14 @@ impl MzApp {
             return;
         };
         let active_items = job.progress.active_items();
+        let failed_entries = failed_modpack_entries(&job);
         let active_heading = self.trf(
             "install_details.current",
             &[("count", &active_items.len().to_string())],
+        );
+        let failed_heading = self.trf(
+            "install_details.failed",
+            &[("count", &failed_entries.len().to_string())],
         );
         let pending_heading = self.trf(
             "install_details.pending",
@@ -519,6 +524,25 @@ impl MzApp {
                             .show(ui, |ui| {
                                 for item in &active_items {
                                     ui.add(egui::Label::new(*item).wrap());
+                                }
+                            });
+                    }
+                    if !failed_entries.is_empty() {
+                        ui.separator();
+                        ui.label(egui::RichText::new(&failed_heading).strong());
+                        egui::ScrollArea::vertical()
+                            .id_salt("failed_downloads")
+                            .auto_shrink([false, true])
+                            .max_height(ACTIVE_DOWNLOADS_MAX_HEIGHT)
+                            .show(ui, |ui| {
+                                for entry in &failed_entries {
+                                    ui.add(egui::Label::new(&entry.name).wrap());
+                                    if let Some(detail) = &entry.detail {
+                                        ui.add(
+                                            egui::Label::new(egui::RichText::new(detail).small())
+                                                .wrap(),
+                                        );
+                                    }
                                 }
                             });
                     }
@@ -833,6 +857,22 @@ fn delete_instance_button(ui: &mut egui::Ui, tooltip: &str) -> egui::Response {
     .show(ui, tooltip)
 }
 
+fn failed_modpack_entries(job: &Job) -> Vec<crate::model::ModpackEntryResult> {
+    job.result
+        .as_ref()
+        .and_then(|result| result.get("entries"))
+        .cloned()
+        .and_then(|entries| {
+            serde_json::from_value::<Vec<crate::model::ModpackEntryResult>>(entries).ok()
+        })
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|entry: &crate::model::ModpackEntryResult| {
+            matches!(entry.status.as_str(), "failed" | "requires_manual_download")
+        })
+        .collect()
+}
+
 fn select_displayed_installation_job<'a>(
     jobs: &'a [Job],
     installing: &[InstallingModpack],
@@ -1001,5 +1041,27 @@ mod tests {
         let jobs = vec![interrupted, succeeded];
 
         assert!(select_displayed_installation_job(&jobs, &[], "instance-1").is_none());
+    }
+
+    #[test]
+    fn download_details_include_failed_mods_and_reasons() {
+        let mut job = import_job("job", "succeeded");
+        job.result = Some(json!({
+            "entries": [
+                {"name": "mods/ok.jar", "status": "imported", "detail": null},
+                {"name": "mods/failed.jar", "status": "failed", "detail": "network timeout"},
+                {
+                    "name": "mods/manual.jar",
+                    "status": "requires_manual_download",
+                    "detail": "automatic download unavailable"
+                }
+            ]
+        }));
+
+        let entries = failed_modpack_entries(&job);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].name, "mods/failed.jar");
+        assert_eq!(entries[0].detail.as_deref(), Some("network timeout"));
+        assert_eq!(entries[1].name, "mods/manual.jar");
     }
 }

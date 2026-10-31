@@ -244,8 +244,16 @@ impl MzApp {
         let requested = self.modpack_browser.requested.clone();
         let mut install = None;
         let mut page = None;
+        let show_pagination = self.modpack_browser.offset > 0 || self.modpack_browser.has_next;
+        let pagination_height = if show_pagination {
+            ACTION_BUTTON_SIZE.y + crate::layout::CARD_LIST_GAP
+        } else {
+            0.0
+        };
+        let list_height = (ui.available_height() - pagination_height).max(0.0);
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
+            .max_height(list_height)
             .show(ui, |ui| {
                 if busy && results.is_empty() {
                     ui.allocate_ui_with_layout(
@@ -267,7 +275,8 @@ impl MzApp {
                     }
                 }
             });
-        if self.modpack_browser.offset > 0 || self.modpack_browser.has_next {
+        if show_pagination {
+            ui.add_space(crate::layout::CARD_LIST_GAP);
             ui.horizontal(|ui| {
                 if ui
                     .add_enabled(

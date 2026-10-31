@@ -8,9 +8,12 @@ use crate::pages::home::{job_status_key, loader_key, status_key};
 const INSTANCE_ICON_SIZE: egui::Vec2 = egui::Vec2::new(48.0, 48.0);
 const INSTANCE_ICON_GRASS_HEIGHT: f32 = 15.0;
 const INSTANCE_ROW_CONTENT_HEIGHT: f32 = 64.0;
+const INSTANCE_SEARCH_ICON_SIZE: egui::Vec2 = egui::Vec2::new(18.0, 18.0);
 const NEW_INSTANCE_BAR_HEIGHT: f32 = 48.0;
 const NEW_INSTANCE_ICON_SIZE: egui::Vec2 = egui::Vec2::new(18.0, 18.0);
+const NEW_INSTANCE_ICON_TEXT_GAP: f32 = 8.0;
 const RETRY_INSTALL_ICON_SIZE: egui::Vec2 = egui::Vec2::new(18.0, 18.0);
+const INSTALL_ACTION_SIZE: egui::Vec2 = crate::layout::SEARCH_CONTROL_SIZE;
 
 impl MzApp {
     pub fn open_create_dialog(&mut self) {
@@ -46,11 +49,31 @@ impl MzApp {
         }
         ui.horizontal(|ui| {
             ui.heading(self.tr("instances.title"));
+            let spacing = ui.spacing().item_spacing.x;
+            let search_width = (ui.available_width() - INSTALL_ACTION_SIZE.x - spacing).max(0.0);
             let search_hint = self.tr("instances.search_hint");
             ui.add(
                 egui::TextEdit::singleline(&mut self.instance_search)
-                    .desired_width(ui.available_width())
+                    .desired_width(search_width)
+                    .min_size(egui::vec2(search_width, INSTALL_ACTION_SIZE.y))
+                    .vertical_align(egui::Align::Center)
                     .hint_text(search_hint),
+            );
+            let (theme, png) = if ui.visuals().dark_mode {
+                ("dark", &include_bytes!("../../assets/search-dark.png")[..])
+            } else {
+                (
+                    "light",
+                    &include_bytes!("../../assets/search-light.png")[..],
+                )
+            };
+            let image =
+                egui::Image::from_bytes(format!("bytes://instances-search-{theme}.png"), png)
+                    .fit_to_exact_size(INSTANCE_SEARCH_ICON_SIZE);
+            ui.add(
+                egui::Button::image(image)
+                    .min_size(INSTALL_ACTION_SIZE)
+                    .corner_radius(egui::CornerRadius::same(7)),
             );
         });
         ui.add_space(crate::layout::CARD_LIST_GAP);
@@ -168,87 +191,115 @@ impl MzApp {
         crate::card_frame(ui).show(ui, |ui| {
             let width = ui.available_width();
             ui.set_min_width(width);
-            ui.horizontal(|ui| {
-                let texture = project.and_then(|project| {
-                    self.modpack_icons
-                        .texture(ui.ctx(), &crate::app::modpack_icon_key(project))
-                });
-                if let Some(texture) = texture {
-                    let (rect, _) =
-                        ui.allocate_exact_size(INSTANCE_ICON_SIZE, egui::Sense::hover());
-                    egui::Image::new((texture.id(), INSTANCE_ICON_SIZE))
-                        .corner_radius(egui::CornerRadius::same(8))
-                        .paint_at(ui, rect);
-                } else {
-                    instance_icon(ui, name);
-                }
-                let spacing = ui.spacing().item_spacing.x;
-                let spinner_width = ui.spacing().interact_size.y;
-                let info_width = (ui.available_width() - spinner_width - spacing).max(0.0);
-                ui.allocate_ui_with_layout(
-                    egui::vec2(info_width, INSTANCE_ROW_CONTENT_HEIGHT),
-                    egui::Layout::top_down(egui::Align::LEFT),
-                    |ui| {
-                        ui.add(
-                            egui::Label::new(egui::RichText::new(name).size(17.0).strong())
-                                .truncate(),
-                        );
-                        ui.add(egui::Label::new(version).truncate());
-                        let status = job.map_or_else(
-                            || self.tr("job.status.queued"),
-                            |job| {
-                                if job.status == "running" {
-                                    self.tr("status.installing")
-                                } else {
-                                    self.tr(job_status_key(&job.status))
-                                }
+            ui.allocate_ui_with_layout(
+                egui::vec2(width, INSTANCE_ROW_CONTENT_HEIGHT),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    let texture = project.and_then(|project| {
+                        self.modpack_icons
+                            .texture(ui.ctx(), &crate::app::modpack_icon_key(project))
+                    });
+                    if let Some(texture) = texture {
+                        let (rect, _) =
+                            ui.allocate_exact_size(INSTANCE_ICON_SIZE, egui::Sense::hover());
+                        egui::Image::new((texture.id(), INSTANCE_ICON_SIZE))
+                            .corner_radius(egui::CornerRadius::same(8))
+                            .paint_at(ui, rect);
+                    } else {
+                        instance_icon(ui, name);
+                    }
+                    let spacing = ui.spacing().item_spacing.x;
+                    let info_width =
+                        (ui.available_width() - INSTALL_ACTION_SIZE.x - spacing).max(0.0);
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(info_width, INSTANCE_ROW_CONTENT_HEIGHT),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| {
+                            ui.add(
+                                egui::Label::new(egui::RichText::new(name).size(17.0).strong())
+                                    .truncate(),
+                            );
+                            ui.add(egui::Label::new(version).truncate());
+                            let status = job.map_or_else(
+                                || self.tr("job.status.queued"),
+                                |job| {
+                                    if job.status == "running" {
+                                        self.tr("status.installing")
+                                    } else {
+                                        self.tr(job_status_key(&job.status))
+                                    }
+                                },
+                            );
+                            let fraction = job.and_then(|job| {
+                                job.progress.total.filter(|total| *total > 0).map(|total| {
+                                    (job.progress.completed as f32 / total as f32).clamp(0.0, 1.0)
+                                })
+                            });
+                            let text = fraction.map_or(status.clone(), |fraction| {
+                                format!("{status} · {:.0}%", fraction * 100.0)
+                            });
+                            let (fill, text_color) = if ui.visuals().dark_mode {
+                                (
+                                    egui::Color32::from_rgb(243, 244, 246),
+                                    egui::Color32::from_rgb(32, 36, 43),
+                                )
+                            } else {
+                                (
+                                    egui::Color32::from_rgb(32, 36, 43),
+                                    egui::Color32::from_rgb(243, 244, 246),
+                                )
+                            };
+                            ui.add(
+                                egui::ProgressBar::new(fraction.unwrap_or(0.0))
+                                    .desired_width(info_width)
+                                    .fill(fill)
+                                    .text(egui::RichText::new(text).color(text_color)),
+                            );
+                        },
+                    );
+                    if job.is_none_or(|job| {
+                        matches!(job.status.as_str(), "queued" | "running" | "cancelling")
+                    }) {
+                        ui.allocate_ui_with_layout(
+                            INSTALL_ACTION_SIZE,
+                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                            |ui| {
+                                ui.spinner();
                             },
                         );
-                        let fraction = job.and_then(|job| {
-                            job.progress.total.filter(|total| *total > 0).map(|total| {
-                                (job.progress.completed as f32 / total as f32).clamp(0.0, 1.0)
-                            })
-                        });
-                        let text = fraction.map_or(status.clone(), |fraction| {
-                            format!("{status} · {:.0}%", fraction * 100.0)
-                        });
-                        ui.add(
-                            egui::ProgressBar::new(fraction.unwrap_or(0.0))
-                                .desired_width(info_width)
-                                .text(text),
-                        );
-                    },
-                );
-                if job.is_none_or(|job| {
-                    matches!(job.status.as_str(), "queued" | "running" | "cancelling")
-                }) {
-                    ui.spinner();
-                } else if let Some(job) =
-                    job.filter(|job| matches!(job.status.as_str(), "failed" | "interrupted"))
-                {
-                    let (theme, png) = if ui.visuals().dark_mode {
-                        (
-                            "dark",
-                            &include_bytes!("../../assets/rotate-right-dark.png")[..],
-                        )
-                    } else {
-                        (
-                            "light",
-                            &include_bytes!("../../assets/rotate-right-light.png")[..],
-                        )
-                    };
-                    let image =
-                        egui::Image::from_bytes(format!("bytes://retry-install-{theme}.png"), png)
-                            .fit_to_exact_size(RETRY_INSTALL_ICON_SIZE);
-                    if ui
-                        .add(egui::Button::image(image))
-                        .on_hover_text(self.tr("action.retry_install"))
-                        .clicked()
+                    } else if let Some(job) =
+                        job.filter(|job| matches!(job.status.as_str(), "failed" | "interrupted"))
                     {
-                        retry = Some(job.id.clone());
+                        let (theme, png) = if ui.visuals().dark_mode {
+                            (
+                                "dark",
+                                &include_bytes!("../../assets/rotate-right-dark.png")[..],
+                            )
+                        } else {
+                            (
+                                "light",
+                                &include_bytes!("../../assets/rotate-right-light.png")[..],
+                            )
+                        };
+                        let image = egui::Image::from_bytes(
+                            format!("bytes://retry-install-{theme}.png"),
+                            png,
+                        )
+                        .fit_to_exact_size(RETRY_INSTALL_ICON_SIZE);
+                        if ui
+                            .add(
+                                egui::Button::image(image)
+                                    .min_size(INSTALL_ACTION_SIZE)
+                                    .corner_radius(egui::CornerRadius::same(7)),
+                            )
+                            .on_hover_text(self.tr("action.retry_install"))
+                            .clicked()
+                        {
+                            retry = Some(job.id.clone());
+                        }
                     }
-                }
-            });
+                },
+            );
         });
         if let Some(job_id) = retry {
             self.retry_modpack_install(&job_id);
@@ -662,10 +713,14 @@ fn new_instance_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
     };
     let image = egui::Image::from_bytes(format!("bytes://new-instance-plus-{theme}.png"), png)
         .fit_to_exact_size(NEW_INSTANCE_ICON_SIZE);
-    ui.add(
-        egui::Button::image_and_text(image, label)
-            .min_size(egui::vec2(ui.available_width(), NEW_INSTANCE_BAR_HEIGHT)),
-    )
+    ui.scope(|ui| {
+        ui.spacing_mut().icon_spacing = NEW_INSTANCE_ICON_TEXT_GAP;
+        ui.add(
+            egui::Button::image_and_text(image, label)
+                .min_size(egui::vec2(ui.available_width(), NEW_INSTANCE_BAR_HEIGHT)),
+        )
+    })
+    .inner
     .on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 

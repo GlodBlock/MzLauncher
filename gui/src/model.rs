@@ -171,6 +171,8 @@ pub struct ModProject {
     pub name: String,
     pub summary: String,
     pub author: String,
+    #[serde(default)]
+    pub icon_url: Option<String>,
     pub page_url: Option<String>,
     pub downloads: u64,
     #[serde(default)]

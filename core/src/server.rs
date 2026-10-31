@@ -530,6 +530,13 @@ impl Server {
                 let params: ModSearchParams = parse_params(&request.params)?;
                 Ok(serde_json::to_value(self.modpacks.search(params).await?)?)
             }
+            "modpack.icon" => {
+                let params: crate::modpack_browser::ModpackIconParams =
+                    parse_params(&request.params)?;
+                Ok(serde_json::to_value(
+                    self.modpacks.icon(&params.url).await?,
+                )?)
+            }
             "modpack.install" => {
                 let params: crate::modpack_browser::ModpackDownloadParams =
                     parse_params(&request.params)?;

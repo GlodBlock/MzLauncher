@@ -6,6 +6,7 @@ mod i18n;
 mod layout;
 mod log;
 mod model;
+mod modpack_icons;
 mod pages;
 mod preferences;
 mod skin;

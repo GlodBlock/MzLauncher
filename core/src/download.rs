@@ -119,29 +119,39 @@ impl Downloader {
         })
     }
 
-    pub async fn fetch_text(&self, url: &str, provider: &str) -> CoreResult<String> {
+    pub async fn fetch_bytes(
+        &self,
+        url: &str,
+        provider: &str,
+        max_bytes: usize,
+    ) -> CoreResult<Vec<u8>> {
         validate_url(url)?;
         let response = self.client.get(url).send().await.map_err(network_error)?;
         let response = check_response(response, provider).await?;
         if response
             .content_length()
-            .is_some_and(|size| size > MAX_JSON_BYTES as u64)
+            .is_some_and(|size| size > max_bytes as u64)
         {
             return Err(CoreError::Upstream {
                 provider: provider.into(),
                 status: StatusCode::PAYLOAD_TOO_LARGE.as_u16(),
-                message: "metadata response is too large".into(),
+                message: "response is too large".into(),
             });
         }
         let bytes = response.bytes().await.map_err(network_error)?;
-        if bytes.len() > MAX_JSON_BYTES {
+        if bytes.len() > max_bytes {
             return Err(CoreError::Upstream {
                 provider: provider.into(),
                 status: StatusCode::PAYLOAD_TOO_LARGE.as_u16(),
-                message: "metadata response is too large".into(),
+                message: "response is too large".into(),
             });
         }
-        String::from_utf8(bytes.to_vec()).map_err(|_| CoreError::Upstream {
+        Ok(bytes.to_vec())
+    }
+
+    pub async fn fetch_text(&self, url: &str, provider: &str) -> CoreResult<String> {
+        let bytes = self.fetch_bytes(url, provider, MAX_JSON_BYTES).await?;
+        String::from_utf8(bytes).map_err(|_| CoreError::Upstream {
             provider: provider.into(),
             status: StatusCode::OK.as_u16(),
             message: "metadata is not valid UTF-8".into(),

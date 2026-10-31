@@ -1,7 +1,7 @@
 use eframe::egui;
 use serde_json::{json, Value};
 
-use crate::app::{MzApp, NewInstanceTab, MODPACK_PAGE_SIZE};
+use crate::app::{modpack_icon_key, MzApp, NewInstanceTab, MODPACK_PAGE_SIZE};
 use crate::model::ModProject;
 use crate::pages::home::loader_key;
 
@@ -655,9 +655,12 @@ fn modpack_row(
     ui: &mut egui::Ui,
     project: &ModProject,
     requested: &std::collections::HashSet<String>,
-    app: &MzApp,
+    app: &mut MzApp,
 ) -> Option<ModProject> {
     let mut install = None;
+    let texture = app
+        .modpack_icons
+        .texture(ui.ctx(), &modpack_icon_key(project));
     crate::card_frame(ui).show(ui, |ui| {
         let row_width = ui.available_width();
         ui.set_width(row_width);
@@ -674,7 +677,7 @@ fn modpack_row(
             MODPACK_ICON_SIZE,
         );
         let mut icon_ui = ui.new_child(egui::UiBuilder::new().max_rect(icon_rect));
-        modpack_icon(&mut icon_ui, project);
+        modpack_icon(&mut icon_ui, project, texture);
 
         let action_rect = egui::Rect::from_center_size(
             egui::pos2(
@@ -730,8 +733,14 @@ fn modpack_row(
     install
 }
 
-fn modpack_icon(ui: &mut egui::Ui, project: &ModProject) {
+fn modpack_icon(ui: &mut egui::Ui, project: &ModProject, texture: Option<egui::TextureHandle>) {
     let (rect, _) = ui.allocate_exact_size(MODPACK_ICON_SIZE, egui::Sense::hover());
+    if let Some(texture) = texture {
+        egui::Image::new((texture.id(), MODPACK_ICON_SIZE))
+            .corner_radius(egui::CornerRadius::same(8))
+            .paint_at(ui, rect);
+        return;
+    }
     let color = match project.provider.as_str() {
         "curse_forge" => egui::Color32::from_rgb(121, 82, 179),
         "ftb" => egui::Color32::from_rgb(45, 128, 151),

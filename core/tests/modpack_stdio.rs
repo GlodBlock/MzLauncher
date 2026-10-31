@@ -277,6 +277,63 @@ fn searches_modrinth_by_downloads_with_provider_offsets() {
     server.join().unwrap();
 }
 
+#[test]
+fn downloads_and_caches_modpack_icons() {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+    use std::io::Read;
+
+    let png = STANDARD
+        .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+        .unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server_png = png.clone();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0_u8; 1024];
+        let read = stream.read(&mut request).unwrap();
+        let request = String::from_utf8_lossy(&request[..read]);
+        assert!(request.starts_with("GET /icon.png "), "{request}");
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            server_png.len()
+        )
+        .unwrap();
+        stream.write_all(&server_png).unwrap();
+    });
+
+    let temp = tempfile::tempdir().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mzlauncher-core"))
+        .arg("--data-dir")
+        .arg(temp.path().join("data"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut client = Client {
+        stdin: child.stdin.take().unwrap(),
+        stdout: BufReader::new(child.stdout.take().unwrap()),
+    };
+    client.call(
+        "hello",
+        "system.handshake",
+        json!({"clientVersion": "test", "minProtocol": 2, "maxProtocol": 2}),
+    );
+    let url = format!("http://{address}/icon.png");
+    for id in ["first", "cached"] {
+        let response = client.call(id, "modpack.icon", json!({"url": url}));
+        assert!(response["error"].is_null(), "icon failed: {response}");
+        assert_eq!(response["result"].as_str().unwrap(), STANDARD.encode(&png));
+    }
+    client.call("stop", "system.shutdown", Value::Null);
+    drop(client);
+    assert!(child.wait().unwrap().success());
+    server.join().unwrap();
+}
+
 fn write_zip(path: &std::path::Path, entries: &[(&str, &[u8])]) {
     let file = std::fs::File::create(path).unwrap();
     let mut writer = zip::ZipWriter::new(file);

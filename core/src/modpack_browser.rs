@@ -2,6 +2,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use futures_util::StreamExt;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -12,10 +14,17 @@ use crate::job::JobContext;
 use crate::model::{LoaderKind, ModProvider};
 use crate::modpack::{ModpackAnalysis, ModpackFormat, PackFile};
 use crate::mods::{loader_name, ModProject, ModSearchParams, ModService};
-use crate::paths::{safe_relative_path, AppPaths};
+use crate::paths::{atomic_write, safe_relative_path, AppPaths};
 
 const FTB_CACHE_TTL: Duration = Duration::from_secs(300);
 const MAX_SEARCH_RESULTS: usize = 20;
+const MAX_ICON_BYTES: usize = 2 * 1024 * 1024;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModpackIconParams {
+    pub url: String,
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -74,6 +83,19 @@ impl ModpackBrowserService {
             }
             _ => Err(CoreError::InvalidInput("invalid modpack provider".into())),
         }
+    }
+
+    pub async fn icon(&self, url: &str) -> CoreResult<String> {
+        let cache_key = hex::encode(Sha256::digest(url.as_bytes()));
+        let path = self.paths.cache.join("modpack-icons").join(cache_key);
+        if !path.is_file() {
+            let bytes = self
+                .downloader
+                .fetch_bytes(url, "modpack_icon", MAX_ICON_BYTES)
+                .await?;
+            atomic_write(&path, &bytes)?;
+        }
+        Ok(STANDARD.encode(tokio::fs::read(path).await?))
     }
 
     pub async fn fetch(

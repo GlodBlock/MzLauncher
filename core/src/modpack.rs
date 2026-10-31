@@ -175,6 +175,10 @@ impl ModpackService {
         self.browser.search(params).await
     }
 
+    pub async fn icon(&self, url: &str) -> CoreResult<String> {
+        self.browser.icon(url).await
+    }
+
     pub async fn import(
         &self,
         path: &Path,

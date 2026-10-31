@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use crate::client::{CoreConnection, CoreMessage};
 use crate::i18n::I18n;
 use crate::model::*;
+use crate::modpack_icons::ModpackIconCache;
 use crate::preferences::GuiPreferences;
 use crate::skin::SkinCache;
 
@@ -123,6 +124,7 @@ pub struct MzApp {
     pub system_dark: bool,
     pub applied_theme: Option<(crate::preferences::ThemePreference, bool)>,
     pub skins: SkinCache,
+    pub modpack_icons: ModpackIconCache,
     pub conn: Option<CoreConnection>,
     pub fatal: Option<String>,
     pub notice: Option<String>,
@@ -170,6 +172,7 @@ impl MzApp {
             system_dark,
             applied_theme: None,
             skins: SkinCache::default(),
+            modpack_icons: ModpackIconCache::default(),
             conn: None,
             fatal: None,
             notice: None,
@@ -235,6 +238,7 @@ impl MzApp {
         self.handshake = None;
         self.pending.clear();
         self.skins.reset_pending();
+        self.modpack_icons.reset_pending();
         self.conn = None;
         match CoreConnection::spawn(
             self.preferences.storage_dir.as_deref(),
@@ -305,6 +309,25 @@ impl MzApp {
         for (id, url) in requests {
             self.skins.begin_request(&id, &url);
             self.call("account.skin", json!({"id": id}), json!({"id": id}));
+        }
+    }
+
+    fn request_missing_modpack_icons(&mut self) {
+        let requests: Vec<(String, String)> = self
+            .modpack_browser
+            .results
+            .iter()
+            .filter_map(|project| {
+                let url = project.icon_url.as_deref()?;
+                let key = modpack_icon_key(project);
+                self.modpack_icons
+                    .needs_request(&key, url)
+                    .then(|| (key, url.to_owned()))
+            })
+            .collect();
+        for (key, url) in requests {
+            self.modpack_icons.begin_request(&key, &url);
+            self.call("modpack.icon", json!({"url": url}), json!({"id": key}));
         }
     }
 
@@ -399,10 +422,15 @@ impl MzApp {
                     self.skins.fail(id);
                 }
             }
+            "modpack.icon" => {
+                if let Some(key) = pending.context.get("id").and_then(Value::as_str) {
+                    self.modpack_icons.fail(key);
+                }
+            }
             _ => {}
         }
         crate::log::write(&format!("{} failed: {message} ({code})", pending.method));
-        if pending.method != "account.skin" {
+        if !matches!(pending.method.as_str(), "account.skin" | "modpack.icon") {
             self.notice =
                 Some(self.trf("notice.request_failed_log", &[("method", &pending.method)]));
         }
@@ -714,6 +742,18 @@ impl MzApp {
                     results.truncate(MODPACK_PAGE_SIZE);
                     self.modpack_browser.results = results;
                     self.modpack_browser.searching = false;
+                    self.request_missing_modpack_icons();
+                }
+            }
+            "modpack.icon" => {
+                if let Some(key) = pending.context.get("id").and_then(Value::as_str) {
+                    let data = result.as_str().unwrap_or_default();
+                    if let Err(error) = self.modpack_icons.complete(key, data) {
+                        crate::log::write(&format!(
+                            "modpack icon decode failed for {key}: {error}"
+                        ));
+                        self.modpack_icons.fail(key);
+                    }
                 }
             }
             "modpack.install" => {
@@ -891,4 +931,8 @@ impl eframe::App for MzApp {
         });
         self.new_instance_window(ctx);
     }
+}
+
+pub fn modpack_icon_key(project: &ModProject) -> String {
+    format!("{}:{}", project.provider, project.project_id)
 }

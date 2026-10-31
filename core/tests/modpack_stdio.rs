@@ -78,6 +78,77 @@ fn analyzes_modrinth_pack_and_rejects_unsafe_paths() {
 }
 
 #[test]
+fn logs_request_and_job_error_details() {
+    let temp = tempfile::tempdir().unwrap();
+    let broken = temp.path().join("broken.mrpack");
+    std::fs::write(&broken, b"not a zip archive").unwrap();
+    let logs = temp.path().join("logs");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mzlauncher-core"))
+        .arg("--data-dir")
+        .arg(temp.path().join("data"))
+        .arg("--log-dir")
+        .arg(&logs)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut client = Client {
+        stdin: child.stdin.take().unwrap(),
+        stdout: BufReader::new(child.stdout.take().unwrap()),
+    };
+    client.call(
+        "hello",
+        "system.handshake",
+        json!({"clientVersion": "test", "minProtocol": 2, "maxProtocol": 2}),
+    );
+    let analysis = client.call("parse", "modpack.analyze", json!({"path": broken}));
+    assert_eq!(analysis["error"]["code"], "archive_error");
+    let import = client.call("import", "modpack.import", json!({"path": broken}));
+    let job_id = import["result"]["id"].as_str().unwrap().to_owned();
+    let mut status = String::new();
+    for _ in 0..100 {
+        let job = client.call("job", "job.get", json!(job_id));
+        status = job["result"]["status"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        if status == "failed" {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert_eq!(status, "failed");
+    client.call("stop", "system.shutdown", Value::Null);
+    drop(client);
+    assert!(child.wait().unwrap().success());
+
+    let log = std::fs::read_to_string(logs.join("core.log")).unwrap();
+    let request_line = log
+        .lines()
+        .find(|line| line.contains("request failed") && line.contains("request_id=parse"))
+        .unwrap_or_else(|| panic!("request error was not logged: {log}"));
+    assert!(
+        request_line.contains("method=modpack.analyze"),
+        "{request_line}"
+    );
+    assert!(
+        request_line.contains("code=\"archive_error\""),
+        "{request_line}"
+    );
+    assert!(request_line.contains("archive error:"), "{request_line}");
+    let job_line = log
+        .lines()
+        .find(|line| line.contains("job failed") && line.contains(&format!("job_id={job_id}")))
+        .unwrap_or_else(|| panic!("job error was not logged: {log}"));
+    assert!(job_line.contains("kind=Import"), "{job_line}");
+    assert!(job_line.contains("target=None"), "{job_line}");
+    assert!(job_line.contains("stage=running"), "{job_line}");
+    assert!(job_line.contains("code=\"archive_error\""), "{job_line}");
+    assert!(job_line.contains("archive error:"), "{job_line}");
+}
+
+#[test]
 fn searches_remote_modpacks_and_validates_installation() {
     use std::io::Read;
 
@@ -482,11 +553,16 @@ impl Client {
         )
         .unwrap();
         self.stdin.flush().unwrap();
-        let mut line = String::new();
-        self.stdout.read_line(&mut line).unwrap();
-        assert!(!line.is_empty(), "core closed stdout");
-        let response: Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(response["id"], id);
-        response
+        loop {
+            let mut line = String::new();
+            self.stdout.read_line(&mut line).unwrap();
+            assert!(!line.is_empty(), "core closed stdout");
+            let response: Value = serde_json::from_str(&line).unwrap();
+            if response["event"].is_object() {
+                continue;
+            }
+            assert_eq!(response["id"], id);
+            return response;
+        }
     }
 }

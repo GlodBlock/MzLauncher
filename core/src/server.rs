@@ -219,7 +219,16 @@ impl Server {
                 }
                 (Response::success(request.id, result), should_shutdown)
             }
-            Err(error) => (Response::error(request.id, error.protocol_error()), false),
+            Err(error) => {
+                tracing::error!(
+                    request_id = %request.id,
+                    method = %request.method,
+                    code = error.code(),
+                    error = %error,
+                    "request failed"
+                );
+                (Response::error(request.id, error.protocol_error()), false)
+            }
         }
     }
 

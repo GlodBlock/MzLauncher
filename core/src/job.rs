@@ -228,6 +228,20 @@ impl JobManager {
             }
             Err(error) => Err(error),
         };
+        if let Err(error) = &result {
+            if !error.is_cancelled() {
+                let job = self.get(context.id).expect("running job must exist");
+                tracing::error!(
+                    job_id = %context.id,
+                    kind = ?job.kind,
+                    target = ?job.target,
+                    stage = %job.progress.stage,
+                    code = error.code(),
+                    error = %error,
+                    "job failed"
+                );
+            }
+        }
         let _ = self.inner.update(context.id, |job| {
             job.finished_at = Some(Utc::now());
             match &result {

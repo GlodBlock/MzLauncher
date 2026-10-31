@@ -321,7 +321,8 @@ impl MzApp {
             self.games.get(&instance.id).map(String::as_str),
             Some("running" | "starting")
         );
-        let installed = instance.install_status == "installed";
+        let installed = instance.install_status == "installed"
+            || (instance.install_status == "incomplete" && project.is_some());
         crate::card_frame(ui).show(ui, |ui| {
             let width = ui.available_width();
             ui.set_min_width(width);
@@ -644,6 +645,11 @@ impl MzApp {
                         "overview.preflight_java",
                         &[("path", java.as_str().unwrap_or_default())],
                     ));
+                }
+                if let Some(warnings) = result.get("warnings").and_then(Value::as_array) {
+                    for warning in warnings {
+                        ui.label(format!("- {}", issue_text(warning)));
+                    }
                 }
             } else {
                 ui.colored_label(

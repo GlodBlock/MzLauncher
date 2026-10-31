@@ -296,6 +296,19 @@ impl Store {
         )?;
         Ok(())
     }
+
+    pub fn modpack(&self, instance_id: Uuid) -> CoreResult<Option<ModpackRecord>> {
+        self.connection
+            .lock()
+            .query_row(
+                "SELECT payload FROM modpacks WHERE instance_id = ?1",
+                params![instance_id.to_string()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .map(|payload| serde_json::from_str(&payload).map_err(CoreError::from))
+            .transpose()
+    }
 }
 
 #[cfg(test)]
@@ -334,6 +347,21 @@ mod tests {
                 .unwrap();
         }
         assert_eq!(store.instances().unwrap().len(), 2);
+        let instance = store.instances().unwrap().into_iter().next().unwrap();
+        let record = ModpackRecord {
+            instance_id: instance.id,
+            format: "modrinth".into(),
+            source_name: "Test Pack".into(),
+            source_sha256: "hash".into(),
+            imported_at: Utc::now(),
+            entries: Vec::new(),
+        };
+        store.save_modpack(&record).unwrap();
+        assert_eq!(
+            store.modpack(instance.id).unwrap().unwrap().source_name,
+            "Test Pack"
+        );
+        assert!(store.modpack(Uuid::new_v4()).unwrap().is_none());
         let version: u32 = store
             .connection
             .lock()

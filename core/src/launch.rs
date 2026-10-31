@@ -43,6 +43,12 @@ struct LaunchPlan {
     working_directory: PathBuf,
     arguments: Vec<String>,
     sensitive: Vec<String>,
+    warnings: Vec<String>,
+}
+
+fn can_launch(status: crate::model::InstallStatus, has_modpack_record: bool) -> bool {
+    status == crate::model::InstallStatus::Installed
+        || (status == crate::model::InstallStatus::Incomplete && has_modpack_record)
 }
 
 #[derive(Clone)]
@@ -81,18 +87,26 @@ impl LaunchService {
 
     pub async fn preflight(&self, id: Uuid) -> CoreResult<Value> {
         match self.prepare(id).await {
-            Ok(plan) => Ok(json!({
-                "instanceId": id,
-                "valid": true,
-                "issues": [],
-                "java": plan.java,
-                "account": {
-                    "id": plan.account.id,
-                    "name": plan.account.name,
-                    "kind": plan.account.kind,
-                    "verified": plan.account.verified,
-                },
-            })),
+            Ok(plan) => {
+                let warnings = plan
+                    .warnings
+                    .iter()
+                    .map(|message| json!({"code": "modpack_incomplete", "message": message}))
+                    .collect::<Vec<_>>();
+                Ok(json!({
+                    "instanceId": id,
+                    "valid": true,
+                    "issues": [],
+                    "warnings": warnings,
+                    "java": plan.java,
+                    "account": {
+                        "id": plan.account.id,
+                        "name": plan.account.name,
+                        "kind": plan.account.kind,
+                        "verified": plan.account.verified,
+                    },
+                }))
+            }
             Err(error) => Ok(json!({
                 "instanceId": id,
                 "valid": false,
@@ -107,11 +121,16 @@ impl LaunchService {
 
     async fn prepare(&self, id: Uuid) -> CoreResult<LaunchPlan> {
         let instance = self.store.instance(id)?;
-        if instance.install_status != crate::model::InstallStatus::Installed {
+        let has_modpack_record = self.store.modpack(id)?.is_some();
+        if !can_launch(instance.install_status, has_modpack_record) {
             return Err(CoreError::Conflict(
                 "instance is not completely installed".into(),
             ));
         }
+        let warnings = (instance.install_status == crate::model::InstallStatus::Incomplete)
+            .then(|| "some modpack files are incomplete".to_owned())
+            .into_iter()
+            .collect();
         let working_directory = self.paths.instance(id);
         if !working_directory.is_dir() {
             return Err(CoreError::NotFound("instance working directory".into()));
@@ -153,6 +172,7 @@ impl LaunchService {
             working_directory,
             arguments,
             sensitive: vec![access_token],
+            warnings,
         })
     }
 
@@ -626,6 +646,14 @@ mod tests {
         instance.total_play_time_ms = u64::MAX;
         add_play_time(&mut instance, Duration::from_millis(1));
         assert_eq!(instance.total_play_time_ms, u64::MAX);
+    }
+
+    #[test]
+    fn launches_incomplete_modpacks_only_with_a_saved_record() {
+        assert!(can_launch(crate::model::InstallStatus::Installed, false));
+        assert!(!can_launch(crate::model::InstallStatus::Incomplete, false));
+        assert!(can_launch(crate::model::InstallStatus::Incomplete, true));
+        assert!(!can_launch(crate::model::InstallStatus::NotInstalled, true));
     }
 
     #[test]

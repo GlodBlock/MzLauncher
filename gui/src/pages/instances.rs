@@ -123,14 +123,7 @@ impl MzApp {
     }
 
     fn displayed_installation_job(&self, instance_id: &str) -> Option<Job> {
-        self.jobs
-            .iter()
-            .find(|job| {
-                matches!(job.kind.as_str(), "import" | "install")
-                    && (matches!(job.status.as_str(), "queued" | "running" | "cancelling")
-                        || (job.kind == "import" && job.status == "interrupted"))
-                    && job.instance_id() == Some(instance_id)
-            })
+        select_displayed_installation_job(&self.jobs, &self.installing_modpacks, instance_id)
             .cloned()
     }
 
@@ -802,6 +795,27 @@ fn delete_instance_button(ui: &mut egui::Ui, tooltip: &str) -> egui::Response {
     .show(ui, tooltip)
 }
 
+fn select_displayed_installation_job<'a>(
+    jobs: &'a [Job],
+    installing: &[InstallingModpack],
+    instance_id: &str,
+) -> Option<&'a Job> {
+    if let Some(job) = installing
+        .iter()
+        .find(|install| install.instance_id.as_deref() == Some(instance_id))
+        .and_then(|install| install.job_id.as_deref())
+        .and_then(|id| jobs.iter().find(|job| job.id == id))
+    {
+        return Some(job);
+    }
+    jobs.iter().find(|job| {
+        matches!(job.kind.as_str(), "import" | "install")
+            && (matches!(job.status.as_str(), "queued" | "running" | "cancelling")
+                || (job.kind == "import" && job.status == "interrupted"))
+            && job.instance_id() == Some(instance_id)
+    })
+}
+
 fn instance_icon(ui: &mut egui::Ui, name: &str) {
     let (rect, _) = ui.allocate_exact_size(INSTANCE_ICON_SIZE, egui::Sense::hover());
     let (grass, dirt) = instance_colors(name);
@@ -878,4 +892,67 @@ fn issue_text(issue: &Value) -> String {
         .and_then(Value::as_str)
         .map(str::to_owned)
         .unwrap_or_else(|| issue.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn import_job(id: &str, status: &str) -> Job {
+        serde_json::from_value(json!({
+            "id": id,
+            "kind": "import",
+            "status": status,
+            "target": null,
+            "progress": {
+                "stage": "downloading",
+                "completed": 1,
+                "total": 2,
+                "currentItem": null
+            },
+            "error": null,
+            "result": null,
+            "checkpoint": {
+                "instanceId": "instance-1",
+                "modpack": {
+                    "provider": "curse_forge",
+                    "projectId": "project-1",
+                    "projectName": "Test Pack"
+                }
+            }
+        }))
+        .unwrap()
+    }
+
+    fn install_for(job: &Job) -> InstallingModpack {
+        InstallingModpack {
+            project: crate::model::ModProject {
+                provider: "curse_forge".into(),
+                project_id: "project-1".into(),
+                name: "Test Pack".into(),
+                summary: String::new(),
+                author: String::new(),
+                icon_url: None,
+                page_url: None,
+                downloads: 0,
+                game_versions: Vec::new(),
+                loaders: Vec::new(),
+            },
+            game_version: "1.21.1".into(),
+            loader: "neo_forge".into(),
+            job_id: Some(job.id.clone()),
+            instance_id: job.instance_id().map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn restored_instance_uses_the_same_job_as_the_retry_list() {
+        let older = import_job("older-job", "interrupted");
+        let newer = import_job("newer-job", "interrupted");
+        let jobs = vec![older, newer.clone()];
+        let installing = vec![install_for(&newer)];
+
+        let selected = select_displayed_installation_job(&jobs, &installing, "instance-1").unwrap();
+        assert_eq!(selected.id, "newer-job");
+    }
 }

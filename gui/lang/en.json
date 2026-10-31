@@ -282,6 +282,7 @@
     "action.more": "More",
     "action.repair": "Repair",
     "action.retry_install": "Retry Installation",
+    "action.retry_failed_mods": "Retry Failed Mods",
     "action.open_directory": "Open Folder",
     "instances.last_launch": "Last launched: {time}",
     "instances.play_time": "Total play time: {time}",

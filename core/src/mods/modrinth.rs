@@ -10,13 +10,15 @@ use super::{ModProject, ModProviderApi, ModSearchParams};
 pub struct Modrinth {
     client: reqwest::Client,
     base: String,
+    downloader: crate::download::Downloader,
 }
 
 impl Modrinth {
-    pub fn new(base: String) -> CoreResult<Self> {
+    pub fn new(base: String, downloader: crate::download::Downloader) -> CoreResult<Self> {
         Ok(Self {
             client: super::client()?,
             base: base.trim_end_matches('/').into(),
+            downloader,
         })
     }
 }
@@ -53,7 +55,8 @@ impl ModProviderApi for Modrinth {
         if params.project_type == super::ModProjectType::Modpack {
             request = request.query(&[("index", "downloads")]);
         }
-        let response: SearchResponse = super::send_json(request, "modrinth").await?;
+        let response: SearchResponse =
+            super::send_json(request, "modrinth", self.downloader.max_retries()).await?;
         Ok(response
             .hits
             .into_iter()
@@ -90,6 +93,7 @@ impl ModProviderApi for Modrinth {
                 ),
             ]),
             "modrinth",
+            self.downloader.max_retries(),
         )
         .await?;
         versions
@@ -103,6 +107,7 @@ impl ModProviderApi for Modrinth {
             super::send_json(
                 self.client.get(format!("{}/version/{file_id}", self.base)),
                 "modrinth",
+                self.downloader.max_retries(),
             )
             .await?,
         )
@@ -126,7 +131,8 @@ impl ModProviderApi for Modrinth {
                 serde_json::to_string(&vec![super::loader_name(loader)])?,
             )]);
         }
-        let versions: Vec<VersionResponse> = super::send_json(request, "modrinth").await?;
+        let versions: Vec<VersionResponse> =
+            super::send_json(request, "modrinth", self.downloader.max_retries()).await?;
         versions.into_iter().map(into_pack_file).collect()
     }
 }

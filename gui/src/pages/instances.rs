@@ -317,6 +317,21 @@ impl MzApp {
             .filter(|job| job.kind == "import" && job.status == "succeeded")
             .find(|job| job.instance_id() == Some(instance.id.as_str()))
             .and_then(InstallingModpack::project_from_job);
+        let retry_job = self
+            .jobs
+            .iter()
+            .find(|job| {
+                job.kind == "import"
+                    && job.status == "succeeded"
+                    && job.instance_id() == Some(instance.id.as_str())
+                    && job
+                        .result
+                        .as_ref()
+                        .and_then(|result| result.get("complete"))
+                        .and_then(Value::as_bool)
+                        == Some(false)
+            })
+            .map(|job| job.id.clone());
         let running = matches!(
             self.games.get(&instance.id).map(String::as_str),
             Some("running" | "starting")
@@ -332,9 +347,12 @@ impl MzApp {
                 |ui| {
                     self.paint_instance_icon(ui, &instance.name, project.as_ref());
                     let spacing = ui.spacing().item_spacing.x;
-                    let info_width =
-                        (ui.available_width() - INSTALL_ACTION_SIZE.x * 4.0 - spacing * 4.0)
-                            .max(0.0);
+                    let action_count = 4 + usize::from(retry_job.is_some());
+                    let action_count = action_count as f32;
+                    let info_width = (ui.available_width()
+                        - INSTALL_ACTION_SIZE.x * action_count
+                        - spacing * action_count)
+                        .max(0.0);
                     ui.allocate_ui_with_layout(
                         egui::vec2(info_width, INSTANCE_ROW_CONTENT_HEIGHT),
                         egui::Layout::top_down(egui::Align::LEFT),
@@ -405,6 +423,18 @@ impl MzApp {
                         {
                             self.selected_instance = Some(instance.id.clone());
                             self.detail_tab = DetailTab::Overview;
+                        }
+                        if let Some(job_id) = &retry_job {
+                            if crate::widgets::IconButton::new(
+                                "retry-failed-mods",
+                                include_bytes!("../../assets/rotate-right-light.png"),
+                                include_bytes!("../../assets/rotate-right-dark.png"),
+                            )
+                            .show(ui, &self.tr("action.retry_failed_mods"))
+                            .clicked()
+                            {
+                                self.retry_modpack_install(job_id);
+                            }
                         }
                         let (primary_tooltip, primary_method) = if running {
                             ("action.stop_game", "game.stop")
@@ -883,6 +913,7 @@ fn select_displayed_installation_job<'a>(
         .find(|install| install.instance_id.as_deref() == Some(instance_id))
         .and_then(|install| install.job_id.as_deref())
         .and_then(|id| jobs.iter().find(|job| job.id == id))
+        .filter(|job| job.status != "succeeded")
     {
         return Some(job);
     }
@@ -1042,6 +1073,15 @@ mod tests {
         let jobs = vec![interrupted, succeeded];
 
         assert!(select_displayed_installation_job(&jobs, &[], "instance-1").is_none());
+    }
+
+    #[test]
+    fn incomplete_success_is_not_displayed_as_an_active_installation() {
+        let mut job = import_job("job", "succeeded");
+        job.result = Some(json!({"complete": false}));
+        let installing = vec![install_for(&job)];
+
+        assert!(select_displayed_installation_job(&[job], &installing, "instance-1").is_none());
     }
 
     #[test]

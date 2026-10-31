@@ -16,14 +16,16 @@ pub struct CurseForge {
     client: reqwest::Client,
     base: String,
     credentials: CredentialStore,
+    downloader: crate::download::Downloader,
 }
 
 impl CurseForge {
-    pub fn new(base: String) -> CoreResult<Self> {
+    pub fn new(base: String, downloader: crate::download::Downloader) -> CoreResult<Self> {
         Ok(Self {
             client: super::client()?,
             base: base.trim_end_matches('/').into(),
             credentials: CredentialStore::new(),
+            downloader,
         })
     }
 
@@ -41,6 +43,7 @@ impl CurseForge {
                 self.request(reqwest::Method::POST, "/mods")?
                     .json(&serde_json::json!({"modIds": ids})),
                 "curseforge",
+                self.downloader.max_retries(),
             )
             .await?;
             names.extend(
@@ -106,7 +109,7 @@ impl ModProviderApi for CurseForge {
             request = request.query(&[("modLoaderType", loader_type(loader).to_string())]);
         }
         let response: DataResponse<Vec<ProjectResponse>> =
-            super::send_json(request, "curseforge").await?;
+            super::send_json(request, "curseforge", self.downloader.max_retries()).await?;
         Ok(response
             .data
             .into_iter()
@@ -158,6 +161,7 @@ impl ModProviderApi for CurseForge {
             self.request(reqwest::Method::GET, &format!("/mods/{project_id}/files"))?
                 .query(&[("gameVersion", instance.game_version.as_str())]),
             "curseforge",
+            self.downloader.max_retries(),
         )
         .await?;
         response.data.into_iter().map(into_mod_file).collect()
@@ -170,6 +174,7 @@ impl ModProviderApi for CurseForge {
                 &format!("/mods/{project_id}/files/{file_id}"),
             )?,
             "curseforge",
+            self.downloader.max_retries(),
         )
         .await?;
         into_mod_file(response.data)
@@ -190,7 +195,7 @@ impl ModProviderApi for CurseForge {
             }
         }
         let response: DataResponse<Vec<FileResponse>> =
-            super::send_json(request, "curseforge").await?;
+            super::send_json(request, "curseforge", self.downloader.max_retries()).await?;
         response.data.into_iter().map(into_mod_file).collect()
     }
 }

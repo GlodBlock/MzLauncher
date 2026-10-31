@@ -248,6 +248,7 @@ impl ModpackBrowserService {
                     self.ftb_base
                 )),
                 "ftb",
+                self.downloader.max_retries(),
             )
             .await?;
             let projects = self.ftb_projects(response.packs).await?;
@@ -271,6 +272,7 @@ impl ModpackBrowserService {
                     self.ftb
                         .get(format!("{}/public/modpack/all", self.ftb_base)),
                     "ftb",
+                    self.downloader.max_retries(),
                 )
                 .await?;
                 let projects = self.ftb_projects(response.packs).await?;
@@ -296,13 +298,14 @@ impl ModpackBrowserService {
 
     async fn ftb_projects(&self, ids: Vec<u64>) -> CoreResult<Vec<ModProject>> {
         let mut projects = Vec::new();
+        let max_retries = self.downloader.max_retries();
         let mut requests =
             futures_util::stream::iter(ids.into_iter().enumerate().map(|(index, id)| {
                 let client = self.ftb.clone();
                 let url = format!("{}/public/modpack/{id}", self.ftb_base);
                 async move {
                     let project: FtbProject =
-                        crate::mods::send_json(client.get(url), "ftb").await?;
+                        crate::mods::send_json(client.get(url), "ftb", max_retries).await?;
                     Ok::<(usize, FtbProject), CoreError>((index, project))
                 }
             }))
@@ -320,6 +323,7 @@ impl ModpackBrowserService {
             self.ftb
                 .get(format!("{}/public/modpack/{project_id}", self.ftb_base)),
             "ftb",
+            self.downloader.max_retries(),
         )
         .await
     }

@@ -556,11 +556,17 @@ impl MzApp {
     }
 
     pub(crate) fn retry_modpack_install(&mut self, job_id: &str) {
-        let Some(install) = self
+        let Some(mut install) = self
             .installing_modpacks
             .iter()
             .find(|install| install.job_id.as_deref() == Some(job_id))
             .cloned()
+            .or_else(|| {
+                self.jobs
+                    .iter()
+                    .find(|job| job.id == job_id)
+                    .and_then(crate::app::InstallingModpack::from_job)
+            })
         else {
             return;
         };
@@ -568,12 +574,15 @@ impl MzApp {
         self.modpack_browser
             .requested
             .insert(install.project.project_id.clone());
+        install.job_id = None;
         if let Some(current) = self
             .installing_modpacks
             .iter_mut()
             .find(|current| current.job_id.as_deref() == Some(job_id))
         {
             current.job_id = None;
+        } else {
+            self.installing_modpacks.push(install.clone());
         }
         self.submit_modpack_install(&install, true);
     }

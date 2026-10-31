@@ -124,13 +124,19 @@ pub struct InstallingModpack {
 }
 
 impl InstallingModpack {
-    fn from_job(job: &Job) -> Option<Self> {
-        if job.kind != "import"
-            || !matches!(
-                job.status.as_str(),
-                "queued" | "running" | "cancelling" | "interrupted" | "failed"
-            )
-        {
+    pub(crate) fn from_job(job: &Job) -> Option<Self> {
+        let unfinished = matches!(
+            job.status.as_str(),
+            "queued" | "running" | "cancelling" | "interrupted" | "failed"
+        );
+        let incomplete = job.status == "succeeded"
+            && job
+                .result
+                .as_ref()
+                .and_then(|result| result.get("complete"))
+                .and_then(Value::as_bool)
+                == Some(false);
+        if job.kind != "import" || !(unfinished || incomplete) {
             return None;
         }
         let source = job.checkpoint.as_ref()?.get("modpack")?;
@@ -1190,6 +1196,11 @@ mod tests {
             project.icon_url.as_deref(),
             Some("https://cdn.example.com/atm10.gif")
         );
+        assert!(InstallingModpack::from_job(&succeeded).is_none());
+        succeeded.result = Some(json!({"complete": false}));
+        let retry = InstallingModpack::from_job(&succeeded).unwrap();
+        assert_eq!(retry.file_id.as_deref(), Some("6000"));
+        assert_eq!(retry.instance_id.as_deref(), Some("instance-1"));
     }
 
     #[test]

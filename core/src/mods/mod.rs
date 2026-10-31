@@ -105,12 +105,14 @@ impl ModService {
         downloader: Downloader,
         endpoints: EndpointConfig,
     ) -> CoreResult<Self> {
+        let modrinth = Modrinth::new(endpoints.modrinth_api, downloader.clone())?;
+        let curseforge = CurseForge::new(endpoints.curseforge_api, downloader.clone())?;
         Ok(Self {
             paths,
             store,
             downloader,
-            modrinth: Arc::new(Modrinth::new(endpoints.modrinth_api)?),
-            curseforge: Arc::new(CurseForge::new(endpoints.curseforge_api)?),
+            modrinth: Arc::new(modrinth),
+            curseforge: Arc::new(curseforge),
         })
     }
 
@@ -658,34 +660,55 @@ pub(crate) fn client() -> CoreResult<reqwest::Client> {
 pub(crate) async fn send_json<T: serde::de::DeserializeOwned>(
     request: reqwest::RequestBuilder,
     provider: &str,
+    max_retries: u32,
 ) -> CoreResult<T> {
-    let response = request
-        .send()
-        .await
-        .map_err(|error| CoreError::Network(error.without_url().to_string()))?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(CoreError::Upstream {
-            provider: provider.into(),
-            status: status.as_u16(),
-            message: format!("provider returned HTTP {}", status.as_u16()),
-        });
+    let mut last_error = None;
+    for attempt in 0..=max_retries {
+        if attempt > 0 {
+            tokio::time::sleep(crate::download::retry_delay(attempt, last_error.as_ref())).await;
+        }
+        let request = request
+            .try_clone()
+            .ok_or_else(|| CoreError::InvalidInput("provider request cannot be retried".into()))?;
+        let result: CoreResult<T> = async {
+            let response = request
+                .send()
+                .await
+                .map_err(|error| CoreError::Network(error.without_url().to_string()))?;
+            let status = response.status();
+            if !status.is_success() {
+                return Err(CoreError::Upstream {
+                    provider: provider.into(),
+                    status: status.as_u16(),
+                    message: format!("provider returned HTTP {}", status.as_u16()),
+                });
+            }
+            if response
+                .content_length()
+                .is_some_and(|length| length > 32 * 1024 * 1024)
+            {
+                return Err(CoreError::Upstream {
+                    provider: provider.into(),
+                    status: 413,
+                    message: "provider response is too large".into(),
+                });
+            }
+            response.json().await.map_err(|error| CoreError::Upstream {
+                provider: provider.into(),
+                status: 200,
+                message: format!("invalid provider response: {error}"),
+            })
+        }
+        .await;
+        match result {
+            Ok(value) => return Ok(value),
+            Err(error) if error.retryable() && attempt < max_retries => {
+                last_error = Some(error);
+            }
+            Err(error) => return Err(error),
+        }
     }
-    if response
-        .content_length()
-        .is_some_and(|length| length > 32 * 1024 * 1024)
-    {
-        return Err(CoreError::Upstream {
-            provider: provider.into(),
-            status: 413,
-            message: "provider response is too large".into(),
-        });
-    }
-    response.json().await.map_err(|error| CoreError::Upstream {
-        provider: provider.into(),
-        status: 200,
-        message: format!("invalid provider response: {error}"),
-    })
+    Err(last_error.unwrap_or_else(|| CoreError::Network("provider request failed".into())))
 }
 
 pub fn mod_path_for_test(paths: &AppPaths, installed: &InstalledMod) -> PathBuf {
@@ -757,6 +780,42 @@ mod tests {
         let records = store.mods(instance.id).unwrap();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].file.file_id, "new");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn metadata_requests_use_configured_retry_count() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            for attempt in 0..2 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut buffer = [0_u8; 1024];
+                let _ = socket.read(&mut buffer).await.unwrap();
+                if attempt == 1 {
+                    let body = br#"{"ok":true}"#;
+                    socket
+                        .write_all(
+                            format!(
+                                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                                body.len()
+                            )
+                            .as_bytes(),
+                        )
+                        .await
+                        .unwrap();
+                    socket.write_all(body).await.unwrap();
+                }
+            }
+        });
+        let response: Value = send_json(
+            client().unwrap().get(format!("http://{address}/metadata")),
+            "test",
+            1,
+        )
+        .await
+        .unwrap();
+        assert_eq!(response, serde_json::json!({"ok": true}));
         server.await.unwrap();
     }
 

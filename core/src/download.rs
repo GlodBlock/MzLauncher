@@ -44,7 +44,7 @@ pub struct DownloadOutcome {
 #[derive(Clone)]
 pub struct Downloader {
     client: reqwest::Client,
-    config: DownloadConfig,
+    config: Arc<parking_lot::RwLock<DownloadConfig>>,
     semaphore: Arc<Semaphore>,
     target_locks: Arc<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>>,
 }
@@ -79,12 +79,20 @@ impl Downloader {
                 .map_err(|error| CoreError::Configuration(error.to_string()))?,
             semaphore: Arc::new(Semaphore::new(config.max_concurrent)),
             target_locks: Arc::new(Mutex::new(HashMap::new())),
-            config,
+            config: Arc::new(parking_lot::RwLock::new(config)),
         })
     }
 
     pub fn max_concurrent(&self) -> usize {
-        self.config.max_concurrent
+        self.config.read().max_concurrent
+    }
+
+    pub fn max_retries(&self) -> u32 {
+        self.config.read().max_retries
+    }
+
+    pub fn set_max_retries(&self, max_retries: u32) {
+        self.config.write().max_retries = max_retries;
     }
 
     pub async fn fetch_json<T: DeserializeOwned>(
@@ -220,8 +228,9 @@ impl Downloader {
         let partial = partial_path(&spec.destination);
         let metadata_path = partial.with_extension("json");
         let mut last_error = None;
+        let max_retries = self.max_retries();
 
-        for attempt in 0..=self.config.max_retries {
+        for attempt in 0..=max_retries {
             check_cancelled(context)?;
             if attempt > 0 {
                 let delay = retry_delay(attempt, last_error.as_ref());
@@ -250,7 +259,7 @@ impl Downloader {
                         reused: false,
                     });
                 }
-                Err(error) if error.retryable() && attempt < self.config.max_retries => {
+                Err(error) if error.retryable() && attempt < max_retries => {
                     last_error = Some(error);
                 }
                 Err(error) => return Err(error),
@@ -358,7 +367,7 @@ impl Downloader {
         loop {
             let next = tokio::select! {
                 result = tokio::time::timeout(
-                    Duration::from_secs(self.config.read_timeout_seconds),
+                    Duration::from_secs(self.config.read().read_timeout_seconds),
                     response.chunk(),
                 ) => result,
                 _ = cancel_wait(context) => return Err(CoreError::Cancelled),
@@ -623,7 +632,7 @@ fn check_cancelled(context: Option<&JobContext>) -> CoreResult<()> {
     context.map_or(Ok(()), JobContext::check_cancelled)
 }
 
-fn retry_delay(attempt: u32, error: Option<&CoreError>) -> Duration {
+pub(crate) fn retry_delay(attempt: u32, error: Option<&CoreError>) -> Duration {
     if let Some(CoreError::Upstream { message, .. }) = error {
         if let Some(seconds) = message
             .split("retry after ")
@@ -656,6 +665,14 @@ mod tests {
         };
         let downloader = Downloader::new(config).unwrap();
         assert_eq!(downloader.max_concurrent(), 7);
+    }
+
+    #[test]
+    fn retry_updates_are_shared_by_clones() {
+        let downloader = Downloader::new(DownloadConfig::default()).unwrap();
+        let cloned = downloader.clone();
+        downloader.set_max_retries(7);
+        assert_eq!(cloned.max_retries(), 7);
     }
 
     #[tokio::test]

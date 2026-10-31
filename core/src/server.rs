@@ -39,6 +39,7 @@ pub struct Server {
     launch: LaunchService,
     mods: ModService,
     modpacks: ModpackService,
+    downloader: Downloader,
     runtime_root: Arc<parking_lot::RwLock<PathBuf>>,
 }
 
@@ -83,7 +84,7 @@ impl Server {
         let modpacks = ModpackService::new(
             paths.clone(),
             store.clone(),
-            downloader,
+            downloader.clone(),
             instances.clone(),
             mods.clone(),
             config.get().endpoints.ftb_api,
@@ -98,6 +99,7 @@ impl Server {
             launch,
             mods,
             modpacks,
+            downloader,
             runtime_root,
         })
     }
@@ -266,11 +268,13 @@ impl Server {
             "settings.update" => {
                 let config: AppConfig = parse_params(&request.params)?;
                 let config = self.config.replace(config)?;
+                self.downloader.set_max_retries(config.download.max_retries);
                 *self.runtime_root.write() = config.runtime_root(&self.paths);
                 Ok(serde_json::to_value(config)?)
             }
             "settings.reset" => {
                 let config = self.config.reset()?;
+                self.downloader.set_max_retries(config.download.max_retries);
                 *self.runtime_root.write() = config.runtime_root(&self.paths);
                 Ok(serde_json::to_value(config)?)
             }

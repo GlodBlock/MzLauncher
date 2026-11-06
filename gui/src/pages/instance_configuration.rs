@@ -288,8 +288,6 @@ impl MzApp {
         };
         let original = draft.clone();
         egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.label(self.tr("configuration.runtime_hint"));
-            ui.add_space(crate::layout::SECTION_GAP);
             egui::Grid::new("instance_runtime_configuration")
                 .num_columns(2)
                 .show(ui, |ui| {

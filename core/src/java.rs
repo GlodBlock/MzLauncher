@@ -396,7 +396,7 @@ fn runtime_platform() -> &'static str {
 
 fn java_executable() -> &'static str {
     if cfg!(windows) {
-        "java.exe"
+        "javaw.exe"
     } else {
         "java"
     }
@@ -425,6 +425,15 @@ pub fn java_from_value(value: &Value) -> CoreResult<JavaRequirement> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uses_desktop_java_executable() {
+        if cfg!(windows) {
+            assert_eq!(java_executable(), "javaw.exe");
+        } else {
+            assert_eq!(java_executable(), "java");
+        }
+    }
 
     #[test]
     fn parses_legacy_and_modern_versions() {

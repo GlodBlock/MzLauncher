@@ -174,7 +174,10 @@ impl MzApp {
                             draft.java_path = nonempty(java);
                         }
                         if ui.button(browse_label).clicked() {
-                            if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                            let dialog = rfd::FileDialog::new();
+                            #[cfg(windows)]
+                            let dialog = dialog.add_filter("javaw.exe", &["exe"]);
+                            if let Some(path) = dialog.pick_file() {
                                 draft.java_path = nonempty(path.display().to_string());
                             }
                         }

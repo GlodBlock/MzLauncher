@@ -222,7 +222,7 @@
     "logs.reload": "Reload Logs",
     "logs.empty": "No logs yet. Game output appears here after launch.",
 
-    "launch.java_path": "Java path (empty = auto):",
+    "launch.java_path": "javaw path (empty = auto):",
     "launch.min_memory": "Min memory MB:",
     "launch.max_memory": "Max memory MB:",
     "launch.memory_positive": "Enter a memory size between 256 and 131072 MB.",

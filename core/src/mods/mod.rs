@@ -430,56 +430,56 @@ impl ModService {
         Ok(installed)
     }
 
-    pub async fn list(&self, instance_id: Uuid) -> CoreResult<Vec<InstalledMod>> {
-        use futures_util::StreamExt;
-
+    pub fn list(&self, instance_id: Uuid) -> CoreResult<Vec<InstalledMod>> {
         self.store.instance(instance_id)?;
         self.scan_manual(instance_id)?;
-        let mods = self.store.mods(instance_id)?;
-        futures_util::stream::iter(mods.into_iter().map(|mut installed| async move {
+        let mut mods = self.store.mods(instance_id)?;
+        for installed in &mut mods {
+            if !matches!(
+                installed.file.provider,
+                ModProvider::Manual | ModProvider::Modpack
+            ) {
+                continue;
+            }
             let original = installed.clone();
-            match installed.file.provider {
-                ModProvider::Manual | ModProvider::Modpack => {
-                    installed.file.project_name = installed.file.file_name.clone();
-                    installed.file.version_name = "unknown".into();
-                    if let Some(metadata) =
-                        metadata::read_jar_metadata(&mod_path(&self.paths, &installed))
-                    {
-                        if let Some(name) = metadata.name {
-                            installed.file.project_name = name;
-                        }
-                        if let Some(version) = metadata.version {
-                            installed.file.version_name = version;
-                        }
-                    }
+            installed.file.project_name = installed.file.file_name.clone();
+            installed.file.version_name = "unknown".into();
+            if let Some(metadata) = metadata::read_jar_metadata(&mod_path(&self.paths, installed)) {
+                if let Some(name) = metadata.name {
+                    installed.file.project_name = name;
                 }
-                ModProvider::Modrinth | ModProvider::CurseForge if installed.icon_url.is_none() => {
-                    if let Ok(project) = self
-                        .provider(installed.file.provider)?
-                        .project(&installed.file.project_id)
-                        .await
-                    {
-                        if !project.name.trim().is_empty() {
-                            installed.file.project_name = project.name;
-                        }
-                        installed.icon_url = project.icon_url;
-                    }
+                if let Some(version) = metadata.version {
+                    installed.file.version_name = version;
                 }
-                _ => {}
             }
             if original.file.project_name != installed.file.project_name
                 || original.file.version_name != installed.file.version_name
-                || original.icon_url != installed.icon_url
             {
-                self.store.save_mod(&installed)?;
+                self.store.save_mod(installed)?;
             }
-            Ok(installed)
-        }))
-        .buffered(6)
-        .collect::<Vec<CoreResult<InstalledMod>>>()
-        .await
-        .into_iter()
-        .collect()
+        }
+        Ok(mods)
+    }
+
+    pub async fn metadata(&self, id: Uuid) -> CoreResult<InstalledMod> {
+        let mut installed = self.find_mod(id)?;
+        if !matches!(
+            installed.file.provider,
+            ModProvider::Modrinth | ModProvider::CurseForge
+        ) || installed.icon_url.is_some()
+        {
+            return Ok(installed);
+        }
+        let project = self
+            .provider(installed.file.provider)?
+            .project(&installed.file.project_id)
+            .await?;
+        if !project.name.trim().is_empty() {
+            installed.file.project_name = project.name;
+        }
+        installed.icon_url = project.icon_url;
+        self.store.save_mod(&installed)?;
+        Ok(installed)
     }
 
     pub fn icon(&self, id: Uuid) -> CoreResult<String> {

@@ -248,6 +248,7 @@ pub struct ModDependency {
 #[serde(rename_all = "camelCase")]
 pub struct InstalledMod {
     pub id: String,
+    pub instance_id: String,
     pub file: ModFile,
     pub enabled: bool,
     #[serde(default)]

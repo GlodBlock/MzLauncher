@@ -492,8 +492,13 @@ impl Server {
                 let params: ModRequest = parse_params(&request.params)?;
                 Ok(serde_json::to_value(
                     self.mods
-                        .list(required(params.instance_id, "instanceId")?)
-                        .await?,
+                        .list(required(params.instance_id, "instanceId")?)?,
+                )?)
+            }
+            "mod.metadata" => {
+                let params: ModRequest = parse_params(&request.params)?;
+                Ok(serde_json::to_value(
+                    self.mods.metadata(required(params.id, "id")?).await?,
                 )?)
             }
             "mod.icon" => {

@@ -478,6 +478,26 @@ impl MzApp {
         }
     }
 
+    fn request_missing_mod_metadata(&mut self, mods: &[InstalledMod]) {
+        for installed in mods {
+            if !matches!(installed.file.provider.as_str(), "modrinth" | "curse_forge")
+                || installed.icon_url.is_some()
+                || self.pending.values().any(|pending| {
+                    pending.method == "mod.metadata"
+                        && pending.context.get("modId").and_then(Value::as_str)
+                            == Some(installed.id.as_str())
+                })
+            {
+                continue;
+            }
+            self.call(
+                "mod.metadata",
+                json!({"id": installed.id}),
+                json!({"instanceId": installed.instance_id, "modId": installed.id}),
+            );
+        }
+    }
+
     pub fn refresh_mods(&mut self, instance_id: &str) {
         self.call(
             "mod.list",
@@ -635,7 +655,7 @@ impl MzApp {
         crate::log::write(&format!("{} failed: {message} ({code})", pending.method));
         if !matches!(
             pending.method.as_str(),
-            "account.skin" | "modpack.icon" | "mod.icon" | "modpack.changelog"
+            "account.skin" | "modpack.icon" | "mod.icon" | "modpack.changelog" | "mod.metadata"
         ) {
             self.notice =
                 Some(self.trf("notice.request_failed_log", &[("method", &pending.method)]));
@@ -1038,8 +1058,21 @@ impl MzApp {
             "mod.list" => {
                 if let Some(id) = pending.context.get("instanceId").and_then(Value::as_str) {
                     let mods = parse_list(result);
+                    self.request_missing_mod_metadata(&mods);
                     self.prepare_mod_icons(&mods);
                     self.mods.insert(id.to_owned(), mods);
+                }
+            }
+            "mod.metadata" => {
+                if let Ok(updated) = serde_json::from_value::<InstalledMod>(result) {
+                    if let Some(mods) = self.mods.get_mut(&updated.instance_id) {
+                        if let Some(current) =
+                            mods.iter_mut().find(|current| current.id == updated.id)
+                        {
+                            *current = updated.clone();
+                        }
+                    }
+                    self.prepare_mod_icons(std::slice::from_ref(&updated));
                 }
             }
             "mod.set_enabled" | "mod.remove" => {

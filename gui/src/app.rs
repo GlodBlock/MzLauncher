@@ -66,6 +66,7 @@ pub struct NewInstanceState {
 pub struct InstanceModpackConfiguration {
     pub record: Option<ModpackRecord>,
     pub loaded: bool,
+    pub current_version: Option<String>,
     pub versions: Vec<ModFile>,
     pub selected_version: Option<String>,
     pub loading: bool,
@@ -1028,13 +1029,27 @@ impl MzApp {
                 }
             }
             "modpack.get" => {
-                if pending.context.get("instanceId").and_then(Value::as_str)
-                    == self.selected_instance.as_deref()
-                {
+                let id = pending
+                    .context
+                    .get("instanceId")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                if id.as_deref() == self.selected_instance.as_deref() {
                     self.instance_modpack.record = serde_json::from_value(result).ok();
+                    self.instance_modpack.current_version = None;
                     self.instance_modpack.versions.clear();
                     self.instance_modpack.selected_version = None;
                     self.instance_modpack.loaded = true;
+                    let has_source = self
+                        .instance_modpack
+                        .record
+                        .as_ref()
+                        .is_some_and(|record| record.source.is_some());
+                    if has_source {
+                        if let Some(id) = id {
+                            self.request_instance_modpack_versions(&id);
+                        }
+                    }
                 }
             }
             "modpack.versions" => {
@@ -1053,8 +1068,9 @@ impl MzApp {
                             .as_ref()
                             .and_then(|record| record.source.as_ref())
                             .map(|source| source.file_id.as_str());
-                        let mut versions: Vec<ModFile> = parse_list(result);
-                        versions.retain(|version| Some(version.file_id.as_str()) != current);
+                        let (current_version, versions) =
+                            split_modpack_versions(parse_list(result), current);
+                        self.instance_modpack.current_version = current_version;
                         self.instance_modpack.selected_version =
                             versions.first().map(|version| version.file_id.clone());
                         self.instance_modpack.versions = versions;
@@ -1370,6 +1386,18 @@ fn take_launch_after_install(
     (requested && job.status == "succeeded").then_some(id)
 }
 
+fn split_modpack_versions(
+    mut versions: Vec<ModFile>,
+    current: Option<&str>,
+) -> (Option<String>, Vec<ModFile>) {
+    let current_version = versions
+        .iter()
+        .find(|version| Some(version.file_id.as_str()) == current)
+        .map(|version| version.version_name.clone());
+    versions.retain(|version| Some(version.file_id.as_str()) != current);
+    (current_version, versions)
+}
+
 pub fn modpack_icon_key(project: &ModProject) -> String {
     format!("{}:{}", project.provider, project.project_id)
 }
@@ -1377,6 +1405,37 @@ pub fn modpack_icon_key(project: &ModProject) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn current_modpack_version_is_resolved_before_filtering_updates() {
+        let file = |id: &str, version: &str| {
+            serde_json::from_value::<ModFile>(json!({
+                "provider": "modrinth",
+                "projectId": "project",
+                "fileId": id,
+                "projectName": "Project",
+                "versionName": version,
+                "fileName": "pack.mrpack",
+                "url": null,
+                "size": null,
+                "sha1": null,
+                "sha256": null,
+                "gameVersions": [],
+                "loaders": [],
+                "channel": "release",
+                "dependencies": [],
+                "publishedAt": null,
+                "distributionAllowed": true
+            }))
+            .unwrap()
+        };
+        let versions = vec![file("current-id", "1.2.3"), file("next-id", "1.3.0")];
+        let (current, updates) = split_modpack_versions(versions, Some("current-id"));
+
+        assert_eq!(current.as_deref(), Some("1.2.3"));
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].file_id, "next-id");
+    }
 
     #[test]
     fn launches_only_after_a_requested_successful_install() {

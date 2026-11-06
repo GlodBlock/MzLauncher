@@ -447,11 +447,15 @@ impl MzApp {
                 ));
                 let current = self
                     .instance_modpack
-                    .versions
-                    .iter()
-                    .find(|version| version.file_id == source.file_id)
-                    .map(|version| version.version_name.clone())
-                    .unwrap_or(source.file_id.clone());
+                    .current_version
+                    .clone()
+                    .unwrap_or_else(|| {
+                        self.tr(if self.instance_modpack.loading {
+                            "configuration.loading_version"
+                        } else {
+                            "configuration.unknown_version"
+                        })
+                    });
                 ui.label(self.trf(
                     "configuration.current_modpack_version",
                     &[("version", &current)],
@@ -557,7 +561,7 @@ impl MzApp {
         self.modpack_update_confirmation(ui, id);
     }
 
-    fn request_instance_modpack_versions(&mut self, id: &str) {
+    pub(crate) fn request_instance_modpack_versions(&mut self, id: &str) {
         let Some(source) = self
             .instance_modpack
             .record

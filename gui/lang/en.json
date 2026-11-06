@@ -186,6 +186,8 @@
     "configuration.loading_modpack": "Loading modpack information...",
     "configuration.modpack_source": "Source: {provider}",
     "configuration.current_modpack_version": "Current version: {version}",
+    "configuration.loading_version": "Loading version...",
+    "configuration.unknown_version": "Unknown version",
     "configuration.check_updates": "Check Updates",
     "configuration.no_modpack_updates": "No other versions are available for an update.",
     "configuration.update_modpack": "Update Modpack",

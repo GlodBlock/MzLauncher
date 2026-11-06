@@ -17,6 +17,7 @@ impl MzApp {
         };
         self.selected_instance = Some(id.to_owned());
         self.configuration_tab = ConfigurationTab::Launch;
+        self.instance_jvm_args_input = instance.jvm_args.join("\n");
         self.draft_instance = Some(instance);
         self.instance_modpack = InstanceModpackConfiguration::default();
         self.refresh_mods(id);
@@ -26,6 +27,7 @@ impl MzApp {
     pub fn close_instance_configuration(&mut self) {
         self.selected_instance = None;
         self.draft_instance = None;
+        self.instance_jvm_args_input.clear();
         self.instance_versions.clear();
         self.instance_loader_versions.clear();
         self.instance_modpack = InstanceModpackConfiguration::default();
@@ -181,17 +183,19 @@ impl MzApp {
                     ui.end_row();
 
                     ui.label(self.tr("launch.jvm_args"));
-                    let mut args = draft.jvm_args.join(" ");
                     if ui
                         .add(
-                            egui::TextEdit::singleline(&mut args)
+                            egui::TextEdit::multiline(&mut self.instance_jvm_args_input)
                                 .desired_width(ui.available_width())
-                                .min_size(egui::vec2(ui.available_width(), control_height))
-                                .vertical_align(egui::Align::Center),
+                                .desired_rows(4),
                         )
                         .changed()
                     {
-                        draft.jvm_args = args.split_whitespace().map(str::to_owned).collect();
+                        draft.jvm_args = self
+                            .instance_jvm_args_input
+                            .split_whitespace()
+                            .map(str::to_owned)
+                            .collect();
                     }
                     ui.end_row();
                 });

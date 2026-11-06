@@ -216,7 +216,7 @@
     "launch.java_path": "Java 路径（留空自动选择）：",
     "launch.min_memory": "最小内存 MB：",
     "launch.max_memory": "最大内存 MB：",
-    "launch.jvm_args": "额外 JVM 参数（空格分隔）：",
+    "launch.jvm_args": "额外 JVM 参数（每行一个）：",
     "launch.save_error": "无法保存：{error}",
 
     "browser.title": "Mod 浏览",

@@ -469,7 +469,7 @@ impl MzApp {
             if let Some(source) = record.source.clone() {
                 ui.label(self.trf(
                     "configuration.modpack_source",
-                    &[("provider", &source.provider)],
+                    &[("provider", modpack_provider_name(&source.provider))],
                 ));
                 let current = self
                     .instance_modpack
@@ -691,9 +691,26 @@ fn valid_instance_name(name: &str) -> bool {
     !name.trim().is_empty() && name.chars().count() <= 80 && !name.chars().any(char::is_control)
 }
 
+fn modpack_provider_name(provider: &str) -> &str {
+    match provider {
+        "curse_forge" => "CurseForge",
+        "modrinth" => "Modrinth",
+        "ftb" => "FTB",
+        other => other,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn modpack_providers_use_display_names() {
+        assert_eq!(modpack_provider_name("curse_forge"), "CurseForge");
+        assert_eq!(modpack_provider_name("modrinth"), "Modrinth");
+        assert_eq!(modpack_provider_name("ftb"), "FTB");
+        assert_eq!(modpack_provider_name("other"), "other");
+    }
 
     #[test]
     fn instance_name_matches_core_validation() {

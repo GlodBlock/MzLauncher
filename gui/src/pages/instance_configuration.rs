@@ -17,7 +17,7 @@ impl MzApp {
         };
         self.selected_instance = Some(id.to_owned());
         self.configuration_tab = ConfigurationTab::Launch;
-        self.instance_jvm_args_input = instance.jvm_args.join("\n");
+        self.instance_jvm_args_input = instance.jvm_args.join(" ");
         self.draft_instance = Some(instance);
         self.instance_modpack = InstanceModpackConfiguration::default();
         self.refresh_mods(id);
@@ -182,12 +182,23 @@ impl MzApp {
                     ui.add(egui::DragValue::new(&mut draft.max_memory_mb).range(256..=131072));
                     ui.end_row();
 
-                    ui.label(self.tr("launch.jvm_args"));
+                    let jvm_args_rows = 4;
+                    let jvm_args_height =
+                        jvm_args_rows as f32 * ui.text_style_height(&egui::TextStyle::Body) + 4.0;
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width(), jvm_args_height),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| {
+                            ui.label(self.tr("launch.jvm_args"));
+                        },
+                    );
                     if ui
                         .add(
                             egui::TextEdit::multiline(&mut self.instance_jvm_args_input)
                                 .desired_width(ui.available_width())
-                                .desired_rows(4),
+                                .desired_rows(jvm_args_rows)
+                                .min_size(egui::vec2(ui.available_width(), jvm_args_height))
+                                .vertical_align(egui::Align::Min),
                         )
                         .changed()
                     {

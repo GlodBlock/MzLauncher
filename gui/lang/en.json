@@ -216,7 +216,7 @@
     "launch.java_path": "Java path (empty = auto):",
     "launch.min_memory": "Min memory MB:",
     "launch.max_memory": "Max memory MB:",
-    "launch.jvm_args": "Extra JVM args (one per line):",
+    "launch.jvm_args": "JVM Arguments:",
     "launch.save_error": "Could not save: {error}",
 
     "browser.title": "Browse Mods",

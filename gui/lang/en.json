@@ -201,6 +201,7 @@
     "configuration.mod_enabled": "Enabled",
     "configuration.mod_disabled": "Disabled",
     "configuration.mod_version_unknown": "Unknown version",
+    "configuration.mod_source_unknown": "Unknown source",
     "configuration.enable_mod": "Enable Mod",
     "configuration.disable_mod": "Disable Mod",
     "configuration.mods_page": "Page {current} / {total}",

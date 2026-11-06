@@ -7,7 +7,7 @@ use crate::pages::home::{job_stage_key, loader_key};
 
 const SIDEBAR_WIDTH: f32 = 180.0;
 const TAB_BUTTON_HEIGHT: f32 = 44.0;
-const MOD_ROW_HEIGHT: f32 = 64.0;
+const MOD_ROW_HEIGHT: f32 = 80.0;
 const MOD_ICON_SIZE: egui::Vec2 = egui::Vec2::splat(48.0);
 const WINDOW_SIZE: [f32; 2] = [1040.0, 700.0];
 const MIN_WINDOW_SIZE: [f32; 2] = [760.0, 520.0];
@@ -706,6 +706,10 @@ impl MzApp {
                                 version => version.to_owned(),
                             };
                             ui.add(egui::Label::new(version).truncate());
+                            let source = mod_source_name(&installed.file.provider)
+                                .map(str::to_owned)
+                                .unwrap_or_else(|| self.tr("configuration.mod_source_unknown"));
+                            ui.add(egui::Label::new(source).truncate());
                         },
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -874,6 +878,15 @@ fn modpack_provider_name(provider: &str) -> &str {
     }
 }
 
+fn mod_source_name(provider: &str) -> Option<&str> {
+    match provider {
+        "curse_forge" => Some("CurseForge"),
+        "modrinth" => Some("Modrinth"),
+        "ftb" => Some("FTB"),
+        _ => None,
+    }
+}
+
 fn can_update_modpack(selected: Option<&str>, current: &str) -> bool {
     selected.is_some_and(|selected| selected != current)
 }
@@ -887,6 +900,16 @@ mod tests {
         assert!(!can_update_modpack(Some("current-id"), "current-id"));
         assert!(can_update_modpack(Some("next-id"), "current-id"));
         assert!(!can_update_modpack(None, "current-id"));
+    }
+
+    #[test]
+    fn mod_sources_only_show_known_platforms() {
+        assert_eq!(mod_source_name("curse_forge"), Some("CurseForge"));
+        assert_eq!(mod_source_name("modrinth"), Some("Modrinth"));
+        assert_eq!(mod_source_name("ftb"), Some("FTB"));
+        assert_eq!(mod_source_name("manual"), None);
+        assert_eq!(mod_source_name("modpack"), None);
+        assert_eq!(mod_source_name("other"), None);
     }
 
     #[test]

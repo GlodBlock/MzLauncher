@@ -192,11 +192,11 @@ impl MzApp {
                     {
                         self.instance_min_memory_input
                             .retain(|character| character.is_ascii_digit());
-                        if let Some(value) = positive_memory(&self.instance_min_memory_input) {
+                        if let Some(value) = valid_memory(&self.instance_min_memory_input) {
                             draft.min_memory_mb = value;
                         }
                     }
-                    if positive_memory(&self.instance_min_memory_input).is_none() {
+                    if valid_memory(&self.instance_min_memory_input).is_none() {
                         ui.end_row();
                         ui.label("");
                         ui.colored_label(
@@ -218,11 +218,11 @@ impl MzApp {
                     {
                         self.instance_max_memory_input
                             .retain(|character| character.is_ascii_digit());
-                        if let Some(value) = positive_memory(&self.instance_max_memory_input) {
+                        if let Some(value) = valid_memory(&self.instance_max_memory_input) {
                             draft.max_memory_mb = value;
                         }
                     }
-                    if positive_memory(&self.instance_max_memory_input).is_none() {
+                    if valid_memory(&self.instance_max_memory_input).is_none() {
                         ui.end_row();
                         ui.label("");
                         ui.colored_label(
@@ -261,8 +261,8 @@ impl MzApp {
                     ui.end_row();
                 });
         });
-        let min_memory = positive_memory(&self.instance_min_memory_input);
-        let max_memory = positive_memory(&self.instance_max_memory_input);
+        let min_memory = valid_memory(&self.instance_min_memory_input);
+        let max_memory = valid_memory(&self.instance_max_memory_input);
         let memory_valid = min_memory.is_some() && max_memory.is_some();
         if let (Some(minimum), Some(maximum)) = (min_memory, max_memory) {
             draft.max_memory_mb = maximum;
@@ -861,8 +861,11 @@ fn nonempty(value: String) -> Option<String> {
     (!trimmed.is_empty()).then(|| trimmed.to_owned())
 }
 
-fn positive_memory(value: &str) -> Option<u32> {
-    value.parse::<u32>().ok().filter(|value| *value > 0)
+fn valid_memory(value: &str) -> Option<u32> {
+    value
+        .parse::<u32>()
+        .ok()
+        .filter(|value| (256..=131072).contains(value))
 }
 
 fn valid_instance_name(name: &str) -> bool {
@@ -931,13 +934,17 @@ mod tests {
     }
 
     #[test]
-    fn memory_input_requires_a_positive_integer() {
-        assert_eq!(positive_memory("1"), Some(1));
-        assert_eq!(positive_memory("4096"), Some(4096));
-        assert_eq!(positive_memory("0"), None);
-        assert_eq!(positive_memory(""), None);
-        assert_eq!(positive_memory("-1"), None);
-        assert_eq!(positive_memory("1.5"), None);
-        assert_eq!(positive_memory("4294967296"), None);
+    fn memory_input_matches_core_range() {
+        assert_eq!(valid_memory("256"), Some(256));
+        assert_eq!(valid_memory("4096"), Some(4096));
+        assert_eq!(valid_memory("131072"), Some(131072));
+        assert_eq!(valid_memory("1"), None);
+        assert_eq!(valid_memory("255"), None);
+        assert_eq!(valid_memory("131073"), None);
+        assert_eq!(valid_memory("0"), None);
+        assert_eq!(valid_memory(""), None);
+        assert_eq!(valid_memory("-1"), None);
+        assert_eq!(valid_memory("1.5"), None);
+        assert_eq!(valid_memory("4294967296"), None);
     }
 }

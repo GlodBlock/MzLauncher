@@ -225,7 +225,7 @@
     "launch.java_path": "Java 路径（留空自动选择）：",
     "launch.min_memory": "最小内存 MB：",
     "launch.max_memory": "最大内存 MB：",
-    "launch.memory_positive": "请输入大于 0 的有效内存大小。",
+    "launch.memory_positive": "请输入 256 到 131072 MB 之间的内存大小。",
     "launch.jvm_args": "JVM 参数：",
     "launch.save_error": "无法保存：{error}",
 

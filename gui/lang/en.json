@@ -225,7 +225,7 @@
     "launch.java_path": "Java path (empty = auto):",
     "launch.min_memory": "Min memory MB:",
     "launch.max_memory": "Max memory MB:",
-    "launch.memory_positive": "Enter a valid memory size greater than 0.",
+    "launch.memory_positive": "Enter a memory size between 256 and 131072 MB.",
     "launch.jvm_args": "JVM Arguments:",
     "launch.save_error": "Could not save: {error}",
 

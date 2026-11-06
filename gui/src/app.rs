@@ -236,6 +236,7 @@ pub struct MzApp {
     pub installing_modpacks: Vec<InstallingModpack>,
     pub launch_after_install: std::collections::HashSet<String>,
     pub games: HashMap<String, String>,
+    pub last_game_status_poll: Option<std::time::Instant>,
     pub exit_codes: HashMap<String, i32>,
     pub settings: Option<AppSettings>,
     pub settings_draft: Option<AppSettings>,
@@ -294,6 +295,7 @@ impl MzApp {
             installing_modpacks: Vec::new(),
             launch_after_install: std::collections::HashSet::new(),
             games: HashMap::new(),
+            last_game_status_poll: None,
             exit_codes: HashMap::new(),
             settings: None,
             settings_draft: None,
@@ -412,6 +414,27 @@ impl MzApp {
 
     pub fn refresh_instances(&mut self) {
         self.call("instance.list", Value::Null, Value::Null);
+    }
+
+    fn poll_game_status(&mut self) {
+        let now = std::time::Instant::now();
+        if self
+            .last_game_status_poll
+            .is_some_and(|last| now.duration_since(last) < std::time::Duration::from_millis(500))
+        {
+            return;
+        }
+        self.last_game_status_poll = Some(now);
+        let mut active = self
+            .games
+            .iter()
+            .filter(|(_, status)| matches!(status.as_str(), "starting" | "running" | "stopping"))
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        active.sort();
+        for id in active {
+            self.call("game.status", json!({"id": id}), json!({"instanceId": id}));
+        }
     }
 
     pub(crate) fn request_missing_skins(&mut self) {
@@ -1324,6 +1347,7 @@ impl eframe::App for MzApp {
             self.applied_theme = Some(theme);
         }
         self.poll();
+        self.poll_game_status();
         if self
             .login
             .as_ref()

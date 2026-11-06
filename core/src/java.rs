@@ -100,6 +100,8 @@ impl JavaManager {
     }
 
     pub async fn validate(&self, path: &Path) -> CoreResult<JavaInfo> {
+        let resolved = resolve_java_path(path);
+        let path = resolved.as_path();
         if !path.is_file() {
             return Err(CoreError::NotFound(format!(
                 "Java executable {}",
@@ -394,6 +396,14 @@ fn runtime_platform() -> &'static str {
     }
 }
 
+fn resolve_java_path(path: &Path) -> PathBuf {
+    if path.is_dir() {
+        path.join("bin").join(java_executable())
+    } else {
+        path.to_path_buf()
+    }
+}
+
 fn java_executable() -> &'static str {
     if cfg!(windows) {
         "javaw.exe"
@@ -433,6 +443,18 @@ mod tests {
         } else {
             assert_eq!(java_executable(), "java");
         }
+    }
+
+    #[test]
+    fn resolves_legacy_directory_java_settings() {
+        let temp = tempfile::tempdir().unwrap();
+        assert_eq!(
+            resolve_java_path(temp.path()),
+            temp.path().join("bin").join(java_executable())
+        );
+        let executable = temp.path().join(java_executable());
+        std::fs::write(&executable, b"").unwrap();
+        assert_eq!(resolve_java_path(&executable), executable);
     }
 
     #[test]

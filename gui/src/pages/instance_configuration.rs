@@ -145,17 +145,29 @@ impl MzApp {
                     ui.spacing_mut().interact_size.y = control_height;
                     ui.label(self.tr("launch.java_path"));
                     let mut java = draft.java_path.clone().unwrap_or_default();
-                    if ui
-                        .add(
-                            egui::TextEdit::singleline(&mut java)
-                                .desired_width(ui.available_width())
-                                .min_size(egui::vec2(ui.available_width(), control_height))
-                                .vertical_align(egui::Align::Center),
-                        )
-                        .changed()
-                    {
-                        draft.java_path = nonempty(java);
-                    }
+                    let browse_label = self.tr("modpack.browse");
+                    ui.horizontal(|ui| {
+                        let browse_width = crate::layout::button_width(ui, &browse_label);
+                        let java_width =
+                            (ui.available_width() - browse_width - ui.spacing().item_spacing.x)
+                                .max(0.0);
+                        if ui
+                            .add(
+                                egui::TextEdit::singleline(&mut java)
+                                    .desired_width(java_width)
+                                    .min_size(egui::vec2(java_width, control_height))
+                                    .vertical_align(egui::Align::Center),
+                            )
+                            .changed()
+                        {
+                            draft.java_path = nonempty(java);
+                        }
+                        if ui.button(browse_label).clicked() {
+                            if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                                draft.java_path = nonempty(path.display().to_string());
+                            }
+                        }
+                    });
                     ui.end_row();
 
                     ui.label(self.tr("launch.min_memory"));

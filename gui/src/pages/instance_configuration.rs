@@ -145,6 +145,7 @@ impl MzApp {
             return;
         };
         let original = draft.clone();
+        let mut commit_memory = false;
         egui::ScrollArea::vertical().show(ui, |ui| {
             egui::Grid::new("instance_launch_configuration")
                 .num_columns(2)
@@ -181,21 +182,17 @@ impl MzApp {
                     ui.end_row();
 
                     ui.label(self.tr("launch.min_memory"));
-                    if ui
-                        .add(
-                            egui::TextEdit::singleline(&mut self.instance_min_memory_input)
-                                .desired_width(ui.available_width())
-                                .min_size(egui::vec2(ui.available_width(), control_height))
-                                .vertical_align(egui::Align::Center),
-                        )
-                        .changed()
-                    {
+                    let response = ui.add(
+                        egui::TextEdit::singleline(&mut self.instance_min_memory_input)
+                            .desired_width(ui.available_width())
+                            .min_size(egui::vec2(ui.available_width(), control_height))
+                            .vertical_align(egui::Align::Center),
+                    );
+                    if response.changed() {
                         self.instance_min_memory_input
                             .retain(|character| character.is_ascii_digit());
-                        if let Some(value) = valid_memory(&self.instance_min_memory_input) {
-                            draft.min_memory_mb = value;
-                        }
                     }
+                    commit_memory |= response.lost_focus();
                     if valid_memory(&self.instance_min_memory_input).is_none() {
                         ui.end_row();
                         ui.label("");
@@ -207,21 +204,17 @@ impl MzApp {
                     ui.end_row();
 
                     ui.label(self.tr("launch.max_memory"));
-                    if ui
-                        .add(
-                            egui::TextEdit::singleline(&mut self.instance_max_memory_input)
-                                .desired_width(ui.available_width())
-                                .min_size(egui::vec2(ui.available_width(), control_height))
-                                .vertical_align(egui::Align::Center),
-                        )
-                        .changed()
-                    {
+                    let response = ui.add(
+                        egui::TextEdit::singleline(&mut self.instance_max_memory_input)
+                            .desired_width(ui.available_width())
+                            .min_size(egui::vec2(ui.available_width(), control_height))
+                            .vertical_align(egui::Align::Center),
+                    );
+                    if response.changed() {
                         self.instance_max_memory_input
                             .retain(|character| character.is_ascii_digit());
-                        if let Some(value) = valid_memory(&self.instance_max_memory_input) {
-                            draft.max_memory_mb = value;
-                        }
                     }
+                    commit_memory |= response.lost_focus();
                     if valid_memory(&self.instance_max_memory_input).is_none() {
                         ui.end_row();
                         ui.label("");
@@ -261,10 +254,12 @@ impl MzApp {
                     ui.end_row();
                 });
         });
-        let min_memory = valid_memory(&self.instance_min_memory_input);
-        let max_memory = valid_memory(&self.instance_max_memory_input);
-        let memory_valid = min_memory.is_some() && max_memory.is_some();
-        if let (Some(minimum), Some(maximum)) = (min_memory, max_memory) {
+        let memory = committed_memory(
+            &self.instance_min_memory_input,
+            &self.instance_max_memory_input,
+            commit_memory,
+        );
+        if let Some((minimum, maximum)) = memory {
             draft.max_memory_mb = maximum;
             draft.min_memory_mb = minimum.min(maximum);
             if minimum > maximum {
@@ -272,12 +267,11 @@ impl MzApp {
             }
         }
         self.draft_instance = Some(draft.clone());
-        if memory_valid
-            && (draft.java_path != original.java_path
-                || draft.min_memory_mb != original.min_memory_mb
-                || draft.max_memory_mb != original.max_memory_mb
-                || draft.jvm_args != original.jvm_args)
-        {
+        let launch_changed =
+            draft.java_path != original.java_path || draft.jvm_args != original.jvm_args;
+        let memory_changed = draft.min_memory_mb != original.min_memory_mb
+            || draft.max_memory_mb != original.max_memory_mb;
+        if launch_changed || (memory.is_some() && memory_changed) {
             self.save_instance_configuration(draft);
         }
     }
@@ -868,6 +862,15 @@ fn valid_memory(value: &str) -> Option<u32> {
         .filter(|value| (256..=131072).contains(value))
 }
 
+fn committed_memory(minimum: &str, maximum: &str, commit: bool) -> Option<(u32, u32)> {
+    if !commit {
+        return None;
+    }
+    let minimum = valid_memory(minimum)?;
+    let maximum = valid_memory(maximum)?;
+    Some((minimum.min(maximum), maximum))
+}
+
 fn valid_instance_name(name: &str) -> bool {
     !name.trim().is_empty() && name.chars().count() <= 80 && !name.chars().any(char::is_control)
 }
@@ -931,6 +934,14 @@ mod tests {
         assert!(!valid_instance_name("   "));
         assert!(!valid_instance_name(&"a".repeat(81)));
         assert!(!valid_instance_name("bad\nname"));
+    }
+
+    #[test]
+    fn memory_changes_wait_for_input_commit() {
+        assert_eq!(committed_memory("4096", "819", false), None);
+        assert_eq!(committed_memory("4096", "819", true), Some((819, 819)));
+        assert_eq!(committed_memory("4096", "8192", true), Some((4096, 8192)));
+        assert_eq!(committed_memory("0", "8192", true), None);
     }
 
     #[test]

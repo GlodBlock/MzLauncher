@@ -17,6 +17,8 @@ impl MzApp {
         };
         self.selected_instance = Some(id.to_owned());
         self.configuration_tab = ConfigurationTab::Launch;
+        self.instance_min_memory_input = instance.min_memory_mb.to_string();
+        self.instance_max_memory_input = instance.max_memory_mb.to_string();
         self.instance_jvm_args_input = instance.jvm_args.join(" ");
         self.draft_instance = Some(instance);
         self.instance_modpack = InstanceModpackConfiguration::default();
@@ -27,6 +29,8 @@ impl MzApp {
     pub fn close_instance_configuration(&mut self) {
         self.selected_instance = None;
         self.draft_instance = None;
+        self.instance_min_memory_input.clear();
+        self.instance_max_memory_input.clear();
         self.instance_jvm_args_input.clear();
         self.instance_versions.clear();
         self.instance_loader_versions.clear();
@@ -175,11 +179,55 @@ impl MzApp {
                     ui.end_row();
 
                     ui.label(self.tr("launch.min_memory"));
-                    ui.add(egui::DragValue::new(&mut draft.min_memory_mb).range(256..=131072));
+                    if ui
+                        .add(
+                            egui::TextEdit::singleline(&mut self.instance_min_memory_input)
+                                .desired_width(ui.available_width())
+                                .min_size(egui::vec2(ui.available_width(), control_height))
+                                .vertical_align(egui::Align::Center),
+                        )
+                        .changed()
+                    {
+                        self.instance_min_memory_input
+                            .retain(|character| character.is_ascii_digit());
+                        if let Some(value) = positive_memory(&self.instance_min_memory_input) {
+                            draft.min_memory_mb = value;
+                        }
+                    }
+                    if positive_memory(&self.instance_min_memory_input).is_none() {
+                        ui.end_row();
+                        ui.label("");
+                        ui.colored_label(
+                            ui.visuals().error_fg_color,
+                            self.tr("launch.memory_positive"),
+                        );
+                    }
                     ui.end_row();
 
                     ui.label(self.tr("launch.max_memory"));
-                    ui.add(egui::DragValue::new(&mut draft.max_memory_mb).range(256..=131072));
+                    if ui
+                        .add(
+                            egui::TextEdit::singleline(&mut self.instance_max_memory_input)
+                                .desired_width(ui.available_width())
+                                .min_size(egui::vec2(ui.available_width(), control_height))
+                                .vertical_align(egui::Align::Center),
+                        )
+                        .changed()
+                    {
+                        self.instance_max_memory_input
+                            .retain(|character| character.is_ascii_digit());
+                        if let Some(value) = positive_memory(&self.instance_max_memory_input) {
+                            draft.max_memory_mb = value;
+                        }
+                    }
+                    if positive_memory(&self.instance_max_memory_input).is_none() {
+                        ui.end_row();
+                        ui.label("");
+                        ui.colored_label(
+                            ui.visuals().error_fg_color,
+                            self.tr("launch.memory_positive"),
+                        );
+                    }
                     ui.end_row();
 
                     let jvm_args_rows = 4;
@@ -211,11 +259,22 @@ impl MzApp {
                     ui.end_row();
                 });
         });
+        let min_memory = positive_memory(&self.instance_min_memory_input);
+        let max_memory = positive_memory(&self.instance_max_memory_input);
+        let memory_valid = min_memory.is_some() && max_memory.is_some();
+        if let (Some(minimum), Some(maximum)) = (min_memory, max_memory) {
+            draft.max_memory_mb = maximum;
+            draft.min_memory_mb = minimum.min(maximum);
+            if minimum > maximum {
+                self.instance_min_memory_input = maximum.to_string();
+            }
+        }
         self.draft_instance = Some(draft.clone());
-        if draft.java_path != original.java_path
-            || draft.min_memory_mb != original.min_memory_mb
-            || draft.max_memory_mb != original.max_memory_mb
-            || draft.jvm_args != original.jvm_args
+        if memory_valid
+            && (draft.java_path != original.java_path
+                || draft.min_memory_mb != original.min_memory_mb
+                || draft.max_memory_mb != original.max_memory_mb
+                || draft.jvm_args != original.jvm_args)
         {
             self.save_instance_configuration(draft);
         }
@@ -581,4 +640,24 @@ impl MzApp {
 fn nonempty(value: String) -> Option<String> {
     let trimmed = value.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
+fn positive_memory(value: &str) -> Option<u32> {
+    value.parse::<u32>().ok().filter(|value| *value > 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn memory_input_requires_a_positive_integer() {
+        assert_eq!(positive_memory("1"), Some(1));
+        assert_eq!(positive_memory("4096"), Some(4096));
+        assert_eq!(positive_memory("0"), None);
+        assert_eq!(positive_memory(""), None);
+        assert_eq!(positive_memory("-1"), None);
+        assert_eq!(positive_memory("1.5"), None);
+        assert_eq!(positive_memory("4294967296"), None);
+    }
 }

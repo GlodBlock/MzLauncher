@@ -258,6 +258,8 @@ pub struct MzApp {
     pub modpack_browser: ModpackBrowser,
     pub modpack: ModpackWizard,
     pub draft_instance: Option<Instance>,
+    pub instance_min_memory_input: String,
+    pub instance_max_memory_input: String,
     pub instance_jvm_args_input: String,
     pub instance_modpack: InstanceModpackConfiguration,
 }
@@ -328,6 +330,8 @@ impl MzApp {
                 importing: false,
             },
             draft_instance: None,
+            instance_min_memory_input: String::new(),
+            instance_max_memory_input: String::new(),
             instance_jvm_args_input: String::new(),
             instance_modpack: InstanceModpackConfiguration::default(),
         };

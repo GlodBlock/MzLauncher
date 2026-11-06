@@ -156,7 +156,7 @@
 
     "delete.title": "Delete Instance",
     "delete.confirm": "Delete instance \"{name}\"?",
-    "delete.warning": "Its mods, configs, saves, screenshots and logs will be deleted. Shared caches are kept. This cannot be undone.",
+    "delete.warning": "Its mods, configs, saves, screenshots and logs will be deleted. This cannot be undone.",
 
     "create.title": "New Instance",
     "create.select_modpack_version": "Select Modpack Version",

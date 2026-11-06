@@ -156,7 +156,7 @@
 
     "delete.title": "删除实例",
     "delete.confirm": "确定删除实例“{name}”吗？",
-    "delete.warning": "将删除该实例的 Mod、配置、存档、截图和日志，共享缓存不受影响。此操作不可撤销。",
+    "delete.warning": "将删除该实例的 Mod、配置、存档、截图和日志。此操作不可撤销。",
 
     "create.title": "新建实例",
     "create.select_modpack_version": "选择整合包版本",

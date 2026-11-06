@@ -320,7 +320,7 @@ impl MzApp {
         );
         let installed = instance.install_status == "installed"
             || (instance.install_status == "incomplete" && project.is_some());
-        crate::card_frame(ui).show(ui, |ui| {
+        let card = crate::card_frame(ui).show(ui, |ui| {
             let width = ui.available_width();
             ui.set_min_width(width);
             ui.allocate_ui_with_layout(
@@ -461,6 +461,38 @@ impl MzApp {
                 },
             );
         });
+        if self.instance_search.trim().is_empty() {
+            let response = ui
+                .interact(
+                    card.response.rect,
+                    ui.id().with(("instance-card", &instance.id)),
+                    egui::Sense::drag(),
+                )
+                .on_hover_cursor(egui::CursorIcon::Grab);
+            response.dnd_set_drag_payload(instance.id.clone());
+            if let Some(source) = response.dnd_release_payload::<String>() {
+                if source.as_str() != instance.id {
+                    self.reorder_instances(&source, &instance.id);
+                }
+            }
+        }
+    }
+
+    fn reorder_instances(&mut self, source: &str, target: &str) {
+        let mut ids = self
+            .instances
+            .iter()
+            .map(|instance| instance.id.clone())
+            .collect::<Vec<_>>();
+        let Some(source_index) = ids.iter().position(|id| id == source) else {
+            return;
+        };
+        let id = ids.remove(source_index);
+        let Some(target_index) = ids.iter().position(|id| id == target) else {
+            return;
+        };
+        ids.insert(target_index, id);
+        self.call("instance.reorder", json!({"ids": ids}), Value::Null);
     }
 
     fn delete_dialog(&mut self) {

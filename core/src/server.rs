@@ -378,6 +378,11 @@ impl Server {
                 Ok(serde_json::to_value(self.instances.create(params)?)?)
             }
             "instance.list" => Ok(serde_json::to_value(self.instances.list()?)?),
+            "instance.reorder" => {
+                let params: ReorderInstancesParams = parse_params(&request.params)?;
+                self.instances.reorder(params.ids)?;
+                Ok(Value::Null)
+            }
             "instance.get" => {
                 let params: InstanceRequest = parse_params(&request.params)?;
                 Ok(serde_json::to_value(self.instances.get(params.id)?)?)
@@ -710,6 +715,11 @@ struct InstanceRequest {
     id: Uuid,
     name: Option<String>,
     idempotency_key: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct ReorderInstancesParams {
+    ids: Vec<Uuid>,
 }
 
 #[derive(serde::Deserialize)]

@@ -79,6 +79,14 @@ impl InstanceService {
         let jvm_args = params.jvm_args.unwrap_or(defaults.jvm_args);
         validate_memory(min_memory_mb, max_memory_mb)?;
         validate_arguments(&jvm_args)?;
+        let sort_order = self
+            .store
+            .instances()?
+            .iter()
+            .map(|instance| instance.sort_order)
+            .min()
+            .unwrap_or(0)
+            .saturating_sub(1);
         let now = Utc::now();
         let instance = Instance {
             id: Uuid::new_v4(),
@@ -97,6 +105,7 @@ impl InstanceService {
             account_id: params.account_id,
             created_at: now,
             updated_at: now,
+            sort_order,
             last_launched_at: None,
             total_play_time_ms: 0,
         };
@@ -125,6 +134,10 @@ impl InstanceService {
 
     pub fn list(&self) -> CoreResult<Vec<Instance>> {
         self.store.instances()
+    }
+
+    pub fn reorder(&self, ids: Vec<Uuid>) -> CoreResult<()> {
+        self.store.reorder_instances(&ids)
     }
 
     pub fn rename(&self, id: Uuid, name: String) -> CoreResult<Instance> {
@@ -163,6 +176,7 @@ impl InstanceService {
         };
         instance.last_launched_at = current.last_launched_at;
         instance.total_play_time_ms = current.total_play_time_ms;
+        instance.sort_order = current.sort_order;
         instance.updated_at = Utc::now();
         self.store.save_instance(&instance)?;
         Ok(instance)
@@ -192,6 +206,14 @@ impl InstanceService {
         copied.updated_at = copied.created_at;
         copied.last_launched_at = None;
         copied.total_play_time_ms = 0;
+        copied.sort_order = self
+            .store
+            .instances()?
+            .iter()
+            .map(|instance| instance.sort_order)
+            .min()
+            .unwrap_or(0)
+            .saturating_sub(1);
         let source_path = self.paths.instance(id);
         let temporary = self.paths.instances.join(format!(".copy-{}", copied.id));
         let destination = self.paths.instance(copied.id);

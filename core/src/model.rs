@@ -231,6 +231,8 @@ pub struct Instance {
     pub account_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[serde(default)]
+    pub sort_order: i64,
     pub last_launched_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub total_play_time_ms: u64,

@@ -94,8 +94,27 @@ fn instance_crud_works_through_the_real_protocol() {
     let copied = client.call("copy", "instance.copy", json!({"id": id, "name": "copy"}));
     assert_ne!(copied["result"]["id"], id);
     assert_eq!(copied["result"]["totalPlayTimeMs"], 0);
+    let copied_id = copied["result"]["id"].as_str().unwrap().to_owned();
+    client.call(
+        "reorder",
+        "instance.reorder",
+        json!({"ids": [&id, &copied_id]}),
+    );
     let listed = client.call("list", "instance.list", Value::Null);
-    assert_eq!(listed["result"].as_array().unwrap().len(), 2);
+    let items = listed["result"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["id"], id);
+    assert_eq!(items[1]["id"], copied_id);
+    let current = client.call("get-before-update", "instance.get", json!({"id": &id}));
+    client.call(
+        "update-after-reorder",
+        "instance.update",
+        current["result"].clone(),
+    );
+    let listed = client.call("list-after-update", "instance.list", Value::Null);
+    let items = listed["result"].as_array().unwrap();
+    assert_eq!(items[0]["id"], id);
+    assert_eq!(items[1]["id"], copied_id);
     let validated = client.call("validate", "instance.validate", json!({"id": id}));
     assert_eq!(validated["result"]["valid"], false);
     client.call("delete", "instance.delete", json!({"id": id}));

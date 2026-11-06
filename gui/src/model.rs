@@ -31,6 +31,8 @@ pub struct Instance {
     pub account_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    #[serde(default)]
+    pub sort_order: i64,
     pub last_launched_at: Option<String>,
     pub total_play_time_ms: u64,
 }

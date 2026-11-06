@@ -116,11 +116,48 @@ impl Store {
         let mut statement =
             connection.prepare("SELECT payload FROM instances ORDER BY updated_at DESC")?;
         let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
-        rows.map(|row| {
-            let payload = row?;
-            serde_json::from_str(&payload).map_err(CoreError::from)
-        })
-        .collect()
+        let mut instances = rows
+            .map(|row| {
+                let payload = row?;
+                serde_json::from_str(&payload).map_err(CoreError::from)
+            })
+            .collect::<CoreResult<Vec<Instance>>>()?;
+        instances.sort_by_key(|instance| instance.sort_order);
+        Ok(instances)
+    }
+
+    pub fn reorder_instances(&self, ids: &[Uuid]) -> CoreResult<()> {
+        let existing = self.instances()?;
+        let expected = existing
+            .iter()
+            .map(|instance| instance.id)
+            .collect::<std::collections::HashSet<_>>();
+        let received = ids
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
+        if existing.len() != ids.len() || received.len() != ids.len() || expected != received {
+            return Err(CoreError::InvalidInput(
+                "instance reorder must include every instance exactly once".into(),
+            ));
+        }
+        let mut connection = self.connection.lock();
+        let transaction = connection.transaction()?;
+        for (index, id) in ids.iter().enumerate() {
+            let payload = transaction.query_row(
+                "SELECT payload FROM instances WHERE id = ?1",
+                params![id.to_string()],
+                |row| row.get::<_, String>(0),
+            )?;
+            let mut instance: Instance = serde_json::from_str(&payload)?;
+            instance.sort_order = index as i64;
+            transaction.execute(
+                "UPDATE instances SET payload = ?1 WHERE id = ?2",
+                params![serde_json::to_string(&instance)?, id.to_string()],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
     }
 
     pub fn delete_instance(&self, id: Uuid) -> CoreResult<()> {
@@ -342,6 +379,7 @@ mod tests {
                     account_id: None,
                     created_at: now,
                     updated_at: now,
+                    sort_order: 0,
                     last_launched_at: None,
                     total_play_time_ms: 0,
                 })

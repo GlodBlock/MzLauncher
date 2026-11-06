@@ -1036,7 +1036,7 @@ impl MzApp {
                 self.close_instance_configuration();
                 self.refresh_instances();
             }
-            "instance.update" => self.refresh_instances(),
+            "instance.update" | "instance.reorder" => self.refresh_instances(),
             "instance.copy" | "instance.rename" => {
                 self.refresh_instances();
                 self.notice = Some(self.tr("notice.saved"));

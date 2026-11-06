@@ -37,6 +37,14 @@ impl Store {
             _lock: lock,
         };
         store.migrate()?;
+        let instances = store.instances()?;
+        if instances.len() > 1 && instances.iter().all(|instance| instance.sort_order == 0) {
+            let ids = instances
+                .iter()
+                .map(|instance| instance.id)
+                .collect::<Vec<_>>();
+            store.reorder_instances(&ids)?;
+        }
         Ok(store)
     }
 
@@ -408,5 +416,28 @@ mod tests {
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
         assert_eq!(version, DATA_VERSION);
+        let expected = store
+            .instances()
+            .unwrap()
+            .into_iter()
+            .map(|instance| instance.id)
+            .collect::<Vec<_>>();
+        drop(store);
+        let store = Store::open(&paths).unwrap();
+        let migrated = store.instances().unwrap();
+        assert_eq!(
+            migrated
+                .iter()
+                .map(|instance| instance.id)
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(
+            migrated
+                .iter()
+                .map(|instance| instance.sort_order)
+                .collect::<Vec<_>>(),
+            vec![0, 1]
+        );
     }
 }

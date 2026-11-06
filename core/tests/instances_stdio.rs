@@ -43,6 +43,31 @@ fn instance_crud_works_through_the_real_protocol() {
     update["lwjglVersion"] = json!("3.3.3");
     let updated = client.call("update", "instance.update", update);
     assert_eq!(updated["result"]["lwjglVersion"], "3.3.3");
+    let mods_directory = temp.path().join("instances").join(&id).join("mods");
+    std::fs::create_dir_all(&mods_directory).unwrap();
+    let jar = std::fs::File::create(mods_directory.join("example.jar")).unwrap();
+    let mut writer = zip::ZipWriter::new(jar);
+    writer
+        .start_file("fabric.mod.json", zip::write::SimpleFileOptions::default())
+        .unwrap();
+    writer
+        .write_all(br#"{"name":"Example Mod","version":"1.2.3","icon":"icon.png"}"#)
+        .unwrap();
+    writer
+        .start_file("icon.png", zip::write::SimpleFileOptions::default())
+        .unwrap();
+    writer.write_all(b"png").unwrap();
+    writer.finish().unwrap();
+    let mods = client.call("mods", "mod.list", json!({"instanceId": id}));
+    let installed = &mods["result"][0];
+    assert_eq!(installed["file"]["projectName"], "Example Mod");
+    assert_eq!(installed["file"]["versionName"], "1.2.3");
+    let icon = client.call(
+        "mod-icon",
+        "mod.icon",
+        json!({"id": installed["id"].as_str().unwrap()}),
+    );
+    assert_eq!(icon["result"], "cG5n");
     let modpack = client.call("modpack", "modpack.get", json!({"id": id}));
     assert!(modpack["result"].is_null());
     let copied = client.call("copy", "instance.copy", json!({"id": id, "name": "copy"}));

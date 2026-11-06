@@ -79,6 +79,28 @@ impl ModProviderApi for Modrinth {
             .collect())
     }
 
+    async fn project(&self, project_id: &str) -> CoreResult<ModProject> {
+        let project: ProjectResponse = super::send_json(
+            self.client
+                .get(format!("{}/project/{project_id}", self.base)),
+            "modrinth",
+            self.downloader.max_retries(),
+        )
+        .await?;
+        Ok(ModProject {
+            provider: ModProvider::Modrinth,
+            project_id: project.id,
+            name: project.title,
+            summary: project.description,
+            author: String::new(),
+            icon_url: project.icon_url,
+            page_url: Some(format!("https://modrinth.com/mod/{}", project.slug)),
+            downloads: project.downloads,
+            game_versions: Vec::new(),
+            loaders: Vec::new(),
+        })
+    }
+
     async fn files(&self, project_id: &str, instance: &Instance) -> CoreResult<Vec<ModFile>> {
         let url = format!("{}/project/{project_id}/version", self.base);
         let versions: Vec<VersionResponse> = super::send_json(
@@ -135,6 +157,19 @@ impl ModProviderApi for Modrinth {
             super::send_json(request, "modrinth", self.downloader.max_retries()).await?;
         versions.into_iter().map(into_pack_file).collect()
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectResponse {
+    id: String,
+    title: String,
+    #[serde(default)]
+    description: String,
+    icon_url: Option<String>,
+    slug: String,
+    #[serde(default)]
+    downloads: u64,
 }
 
 #[derive(Debug, Deserialize)]

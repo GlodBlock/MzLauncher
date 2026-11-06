@@ -2,11 +2,13 @@ use eframe::egui;
 use serde_json::{json, Value};
 
 use crate::app::{ConfigurationTab, InstanceModpackConfiguration, MzApp};
-use crate::model::Instance;
+use crate::model::{InstalledMod, Instance};
 use crate::pages::home::{job_stage_key, loader_key};
 
 const SIDEBAR_WIDTH: f32 = 180.0;
 const TAB_BUTTON_HEIGHT: f32 = 44.0;
+const MOD_ROW_HEIGHT: f32 = 64.0;
+const MOD_ICON_SIZE: egui::Vec2 = egui::Vec2::splat(48.0);
 const WINDOW_SIZE: [f32; 2] = [1040.0, 700.0];
 const MIN_WINDOW_SIZE: [f32; 2] = [760.0, 520.0];
 
@@ -575,20 +577,7 @@ impl MzApp {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 for installed in mods {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.strong(&installed.file.project_name);
-                        ui.label(&installed.file.version_name);
-                        ui.label(if installed.managed {
-                            installed.file.provider.clone()
-                        } else {
-                            self.tr("mods.untracked")
-                        });
-                        ui.label(self.tr(if installed.enabled {
-                            "configuration.mod_enabled"
-                        } else {
-                            "configuration.mod_disabled"
-                        }));
-                    });
+                    self.installed_mod_row(ui, id, &installed);
                     ui.add_space(crate::layout::CARD_LIST_GAP);
                 }
             });
@@ -604,6 +593,75 @@ impl MzApp {
                 self.save_instance_configuration(draft);
             }
         }
+    }
+
+    fn installed_mod_row(&mut self, ui: &mut egui::Ui, id: &str, installed: &InstalledMod) {
+        let texture = self
+            .modpack_icons
+            .texture(ui.ctx(), &crate::app::mod_icon_key(installed));
+        crate::card_frame(ui).show(ui, |ui| {
+            let width = ui.available_width();
+            ui.set_min_width(width);
+            ui.allocate_ui_with_layout(
+                egui::vec2(width, MOD_ROW_HEIGHT),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    paint_mod_icon(ui, installed, texture);
+                    let spacing = ui.spacing().item_spacing.x;
+                    let info_width = (ui.available_width()
+                        - crate::layout::TOOLBAR_CONTROL_SIZE.x
+                        - spacing * 2.0
+                        - crate::layout::CONTENT_TRAILING_RESERVE)
+                        .max(0.0);
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(info_width, MOD_ROW_HEIGHT),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| {
+                            let name = if installed.file.project_name.trim().is_empty() {
+                                &installed.file.file_name
+                            } else {
+                                &installed.file.project_name
+                            };
+                            ui.add(
+                                egui::Label::new(egui::RichText::new(name).size(16.0).strong())
+                                    .truncate(),
+                            );
+                            let version = match installed.file.version_name.as_str() {
+                                "" | "unknown" | "untracked" | "modpack" => {
+                                    self.tr("configuration.mod_version_unknown")
+                                }
+                                version => version.to_owned(),
+                            };
+                            ui.add(egui::Label::new(version).truncate());
+                        },
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let button = if installed.enabled {
+                            crate::widgets::IconButton::new(
+                                "disable-mod",
+                                include_bytes!("../../assets/disable-light.png"),
+                                include_bytes!("../../assets/disable-dark.png"),
+                            )
+                            .show(ui, &self.tr("configuration.disable_mod"))
+                        } else {
+                            crate::widgets::IconButton::new(
+                                "enable-mod",
+                                include_bytes!("../../assets/enable-light.png"),
+                                include_bytes!("../../assets/enable-dark.png"),
+                            )
+                            .show(ui, &self.tr("configuration.enable_mod"))
+                        };
+                        if button.clicked() {
+                            self.call(
+                                "mod.set_enabled",
+                                json!({"id": installed.id, "enabled": !installed.enabled}),
+                                json!({"instanceId": id}),
+                            );
+                        }
+                    });
+                },
+            );
+        });
     }
 
     pub(crate) fn request_instance_modpack_versions(&mut self, id: &str) {
@@ -684,6 +742,41 @@ impl MzApp {
             json!({"instanceId": id, "configuration": true}),
         );
     }
+}
+
+fn paint_mod_icon(
+    ui: &mut egui::Ui,
+    installed: &InstalledMod,
+    texture: Option<egui::TextureHandle>,
+) {
+    let (rect, _) = ui.allocate_exact_size(MOD_ICON_SIZE, egui::Sense::hover());
+    if let Some(texture) = texture {
+        egui::Image::new((texture.id(), MOD_ICON_SIZE))
+            .corner_radius(egui::CornerRadius::same(8))
+            .paint_at(ui, rect);
+        return;
+    }
+    ui.painter().rect(
+        rect,
+        egui::CornerRadius::same(8),
+        egui::Color32::from_rgb(92, 100, 112),
+        egui::Stroke::NONE,
+        egui::StrokeKind::Inside,
+    );
+    let initial = installed
+        .file
+        .project_name
+        .chars()
+        .next()
+        .unwrap_or('M')
+        .to_string();
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        initial,
+        egui::FontId::proportional(22.0),
+        egui::Color32::WHITE,
+    );
 }
 
 fn nonempty(value: String) -> Option<String> {

@@ -492,8 +492,13 @@ impl Server {
                 let params: ModRequest = parse_params(&request.params)?;
                 Ok(serde_json::to_value(
                     self.mods
-                        .list(required(params.instance_id, "instanceId")?)?,
+                        .list(required(params.instance_id, "instanceId")?)
+                        .await?,
                 )?)
+            }
+            "mod.icon" => {
+                let params: ModRequest = parse_params(&request.params)?;
+                Ok(Value::String(self.mods.icon(required(params.id, "id")?)?))
             }
             "mod.set_enabled" => {
                 let params: ModRequest = parse_params(&request.params)?;

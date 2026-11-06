@@ -322,6 +322,8 @@ pub struct InstalledMod {
     pub file: ModFile,
     pub enabled: bool,
     pub managed: bool,
+    #[serde(default)]
+    pub icon_url: Option<String>,
     pub installed_at: DateTime<Utc>,
 }
 

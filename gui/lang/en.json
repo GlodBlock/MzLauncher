@@ -201,6 +201,9 @@
     "configuration.installed_mods": "Installed Mods",
     "configuration.mod_enabled": "Enabled",
     "configuration.mod_disabled": "Disabled",
+    "configuration.mod_version_unknown": "Unknown version",
+    "configuration.enable_mod": "Enable Mod",
+    "configuration.disable_mod": "Disable Mod",
 
     "overview.status": "Status: {status}",
     "overview.last_launch": "Last launched: {time}",

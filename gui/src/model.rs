@@ -247,9 +247,11 @@ pub struct ModDependency {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InstalledMod {
+    pub id: String,
     pub file: ModFile,
     pub enabled: bool,
-    pub managed: bool,
+    #[serde(default)]
+    pub icon_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

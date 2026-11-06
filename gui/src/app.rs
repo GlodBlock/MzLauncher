@@ -461,6 +461,23 @@ impl MzApp {
         }
     }
 
+    fn prepare_mod_icons(&mut self, mods: &[InstalledMod]) {
+        for installed in mods {
+            let key = mod_icon_key(installed);
+            if let Some(url) = installed.icon_url.as_deref().filter(|url| !url.is_empty()) {
+                if self.modpack_icons.needs_request(&key, url) {
+                    self.modpack_icons.begin_request(&key, url);
+                    self.call("modpack.icon", json!({"url": url}), json!({"id": key}));
+                }
+            } else if matches!(installed.file.provider.as_str(), "manual" | "modpack")
+                && self.modpack_icons.needs_request(&key, "jar")
+            {
+                self.modpack_icons.begin_request(&key, "jar");
+                self.call("mod.icon", json!({"id": installed.id}), json!({"id": key}));
+            }
+        }
+    }
+
     pub fn refresh_mods(&mut self, instance_id: &str) {
         self.call(
             "mod.list",
@@ -608,7 +625,7 @@ impl MzApp {
                     self.skins.fail(id);
                 }
             }
-            "modpack.icon" => {
+            "modpack.icon" | "mod.icon" => {
                 if let Some(key) = pending.context.get("id").and_then(Value::as_str) {
                     self.modpack_icons.fail(key);
                 }
@@ -618,7 +635,7 @@ impl MzApp {
         crate::log::write(&format!("{} failed: {message} ({code})", pending.method));
         if !matches!(
             pending.method.as_str(),
-            "account.skin" | "modpack.icon" | "modpack.changelog"
+            "account.skin" | "modpack.icon" | "mod.icon" | "modpack.changelog"
         ) {
             self.notice =
                 Some(self.trf("notice.request_failed_log", &[("method", &pending.method)]));
@@ -1020,7 +1037,9 @@ impl MzApp {
             }
             "mod.list" => {
                 if let Some(id) = pending.context.get("instanceId").and_then(Value::as_str) {
-                    self.mods.insert(id.to_owned(), parse_list(result));
+                    let mods = parse_list(result);
+                    self.prepare_mod_icons(&mods);
+                    self.mods.insert(id.to_owned(), mods);
                 }
             }
             "mod.set_enabled" | "mod.remove" => {
@@ -1127,7 +1146,7 @@ impl MzApp {
                     self.request_missing_modpack_icons();
                 }
             }
-            "modpack.icon" => {
+            "modpack.icon" | "mod.icon" => {
                 if let Some(key) = pending.context.get("id").and_then(Value::as_str) {
                     let data = result.as_str().unwrap_or_default();
                     if let Err(error) = self.modpack_icons.complete(key, data) {
@@ -1398,6 +1417,10 @@ fn split_modpack_versions(
         .map(|version| version.version_name.clone());
     versions.retain(|version| Some(version.file_id.as_str()) != current);
     (current_version, versions)
+}
+
+pub fn mod_icon_key(installed: &InstalledMod) -> String {
+    format!("mod:{}", installed.id)
 }
 
 pub fn modpack_icon_key(project: &ModProject) -> String {

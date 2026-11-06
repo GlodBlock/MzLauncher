@@ -1535,6 +1535,7 @@ mod tests {
                     },
                     enabled: true,
                     managed,
+                    icon_url: None,
                     installed_at: chrono::Utc::now(),
                 })
                 .unwrap();

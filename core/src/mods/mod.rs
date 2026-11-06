@@ -1,4 +1,5 @@
 mod curseforge;
+mod metadata;
 mod modrinth;
 
 use std::collections::HashSet;
@@ -85,6 +86,7 @@ pub struct ModSearchParams {
 pub trait ModProviderApi: Send + Sync {
     fn provider(&self) -> ModProvider;
     async fn search(&self, params: &ModSearchParams) -> CoreResult<Vec<ModProject>>;
+    async fn project(&self, project_id: &str) -> CoreResult<ModProject>;
     async fn files(&self, project_id: &str, instance: &Instance) -> CoreResult<Vec<ModFile>>;
     async fn file(&self, project_id: &str, file_id: &str) -> CoreResult<ModFile>;
     async fn modpack_files(
@@ -409,6 +411,7 @@ impl ModService {
             file,
             enabled: true,
             managed: true,
+            icon_url: None,
             installed_at: Utc::now(),
         };
         self.store.save_mod(&installed)?;
@@ -427,10 +430,63 @@ impl ModService {
         Ok(installed)
     }
 
-    pub fn list(&self, instance_id: Uuid) -> CoreResult<Vec<InstalledMod>> {
+    pub async fn list(&self, instance_id: Uuid) -> CoreResult<Vec<InstalledMod>> {
+        use futures_util::StreamExt;
+
         self.store.instance(instance_id)?;
         self.scan_manual(instance_id)?;
-        self.store.mods(instance_id)
+        let mods = self.store.mods(instance_id)?;
+        futures_util::stream::iter(mods.into_iter().map(|mut installed| async move {
+            let original = installed.clone();
+            match installed.file.provider {
+                ModProvider::Manual | ModProvider::Modpack => {
+                    installed.file.project_name = installed.file.file_name.clone();
+                    installed.file.version_name = "unknown".into();
+                    if let Some(metadata) =
+                        metadata::read_jar_metadata(&mod_path(&self.paths, &installed))
+                    {
+                        if let Some(name) = metadata.name {
+                            installed.file.project_name = name;
+                        }
+                        if let Some(version) = metadata.version {
+                            installed.file.version_name = version;
+                        }
+                    }
+                }
+                ModProvider::Modrinth | ModProvider::CurseForge if installed.icon_url.is_none() => {
+                    if let Ok(project) = self
+                        .provider(installed.file.provider)?
+                        .project(&installed.file.project_id)
+                        .await
+                    {
+                        if !project.name.trim().is_empty() {
+                            installed.file.project_name = project.name;
+                        }
+                        installed.icon_url = project.icon_url;
+                    }
+                }
+                _ => {}
+            }
+            if original.file.project_name != installed.file.project_name
+                || original.file.version_name != installed.file.version_name
+                || original.icon_url != installed.icon_url
+            {
+                self.store.save_mod(&installed)?;
+            }
+            Ok(installed)
+        }))
+        .buffered(6)
+        .collect::<Vec<CoreResult<InstalledMod>>>()
+        .await
+        .into_iter()
+        .collect()
+    }
+
+    pub fn icon(&self, id: Uuid) -> CoreResult<String> {
+        let installed = self.find_mod(id)?;
+        metadata::read_jar_metadata(&mod_path(&self.paths, &installed))
+            .and_then(|metadata| metadata.icon_base64)
+            .ok_or_else(|| CoreError::NotFound("Mod icon".into()))
     }
 
     fn scan_manual(&self, instance_id: Uuid) -> CoreResult<()> {
@@ -479,6 +535,7 @@ impl ModService {
                 },
                 enabled,
                 managed: false,
+                icon_url: None,
                 installed_at: Utc::now(),
             })?;
         }
@@ -766,6 +823,7 @@ mod tests {
             file: mod_file("old", None),
             enabled: true,
             managed: true,
+            icon_url: None,
             installed_at: Utc::now(),
         };
         store.save_mod(&old).unwrap();
@@ -851,6 +909,7 @@ mod tests {
                 file: mod_file("old", None),
                 enabled: true,
                 managed: true,
+                icon_url: None,
                 installed_at: Utc::now(),
             })
             .unwrap();

@@ -172,6 +172,32 @@ impl ModProviderApi for CurseForge {
             .collect())
     }
 
+    async fn project(&self, project_id: &str) -> CoreResult<ModProject> {
+        let response: DataResponse<ProjectResponse> = super::send_json(
+            self.request(reqwest::Method::GET, &format!("/mods/{project_id}"))?,
+            "curseforge",
+            self.downloader.max_retries(),
+        )
+        .await?;
+        let project = response.data;
+        Ok(ModProject {
+            provider: ModProvider::CurseForge,
+            project_id: project.id.to_string(),
+            name: project.name,
+            summary: project.summary,
+            author: project
+                .authors
+                .first()
+                .map(|author| author.name.clone())
+                .unwrap_or_default(),
+            icon_url: project.logo.and_then(|logo| logo.thumbnail_url),
+            page_url: project.links.and_then(|links| links.website_url),
+            downloads: project.download_count,
+            game_versions: Vec::new(),
+            loaders: Vec::new(),
+        })
+    }
+
     async fn files(&self, project_id: &str, instance: &Instance) -> CoreResult<Vec<ModFile>> {
         let response: DataResponse<Vec<FileResponse>> = super::send_json(
             self.request(reqwest::Method::GET, &format!("/mods/{project_id}/files"))?

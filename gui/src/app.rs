@@ -920,13 +920,21 @@ impl MzApp {
                 self.refresh_instances();
             }
             "instance.update" => {
+                let auto_save = pending
+                    .context
+                    .get("autoSave")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 if let Ok(instance) = serde_json::from_value::<Instance>(result) {
-                    if self.selected_instance.as_deref() == Some(instance.id.as_str()) {
+                    if !auto_save && self.selected_instance.as_deref() == Some(instance.id.as_str())
+                    {
                         self.draft_instance = Some(instance);
                     }
                 }
                 self.refresh_instances();
-                self.notice = Some(self.tr("notice.saved"));
+                if !auto_save {
+                    self.notice = Some(self.tr("notice.saved"));
+                }
             }
             "instance.copy" | "instance.rename" => {
                 self.refresh_instances();

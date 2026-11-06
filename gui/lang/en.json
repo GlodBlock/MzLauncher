@@ -218,7 +218,6 @@
     "launch.min_memory": "Min memory MB:",
     "launch.max_memory": "Max memory MB:",
     "launch.jvm_args": "Extra JVM args (space separated):",
-    "launch.save": "Save Launch Settings",
     "launch.save_error": "Could not save: {error}",
 
     "browser.title": "Browse Mods",

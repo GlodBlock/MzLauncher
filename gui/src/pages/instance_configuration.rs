@@ -136,6 +136,7 @@ impl MzApp {
         let Some(mut draft) = self.draft_instance.clone() else {
             return;
         };
+        let original = draft.clone();
         egui::ScrollArea::vertical().show(ui, |ui| {
             egui::Grid::new("instance_launch_configuration")
                 .num_columns(2)
@@ -174,12 +175,15 @@ impl MzApp {
                     }
                     ui.end_row();
                 });
-            ui.add_space(crate::layout::SECTION_GAP);
-            if ui.button(self.tr("launch.save")).clicked() {
-                self.save_instance_configuration(draft.clone());
-            }
         });
-        self.draft_instance = Some(draft);
+        self.draft_instance = Some(draft.clone());
+        if draft.java_path != original.java_path
+            || draft.min_memory_mb != original.min_memory_mb
+            || draft.max_memory_mb != original.max_memory_mb
+            || draft.jvm_args != original.jvm_args
+        {
+            self.save_instance_configuration(draft, true);
+        }
     }
 
     fn instance_runtime_configuration(&mut self, ui: &mut egui::Ui, id: &str) {
@@ -276,7 +280,7 @@ impl MzApp {
                 )
                 .clicked()
             {
-                self.save_instance_configuration(draft.clone());
+                self.save_instance_configuration(draft.clone(), false);
             }
         });
         self.draft_instance = Some(draft);
@@ -290,9 +294,13 @@ impl MzApp {
         }
     }
 
-    fn save_instance_configuration(&mut self, draft: Instance) {
+    fn save_instance_configuration(&mut self, draft: Instance, auto_save: bool) {
         match serde_json::to_value(&draft) {
-            Ok(value) => self.call("instance.update", value, json!({"instanceId": draft.id})),
+            Ok(value) => self.call(
+                "instance.update",
+                value,
+                json!({"instanceId": draft.id, "autoSave": auto_save}),
+            ),
             Err(error) => {
                 self.notice = Some(self.trf("launch.save_error", &[("error", &error.to_string())]));
             }

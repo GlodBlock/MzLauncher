@@ -1071,8 +1071,10 @@ impl MzApp {
                         let (current_version, versions) =
                             split_modpack_versions(parse_list(result), current);
                         self.instance_modpack.current_version = current_version;
-                        self.instance_modpack.selected_version =
-                            versions.first().map(|version| version.file_id.clone());
+                        self.instance_modpack.selected_version = versions
+                            .first()
+                            .map(|version| version.file_id.clone())
+                            .or_else(|| current.map(str::to_owned));
                         self.instance_modpack.versions = versions;
                         self.instance_modpack.loading = false;
                     }

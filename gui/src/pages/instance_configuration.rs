@@ -502,11 +502,11 @@ impl MzApp {
                         ui.spinner();
                     }
                 });
-                if !self.instance_modpack.versions.is_empty() {
-                    let selected = self
-                        .instance_modpack
-                        .selected_version
-                        .as_deref()
+                let selected_id = self.instance_modpack.selected_version.as_deref();
+                let selected = if selected_id == Some(source.file_id.as_str()) {
+                    current.clone()
+                } else {
+                    selected_id
                         .and_then(|selected| {
                             self.instance_modpack
                                 .versions
@@ -514,41 +514,49 @@ impl MzApp {
                                 .find(|version| version.file_id == selected)
                         })
                         .map(|version| version.version_name.clone())
-                        .unwrap_or_else(|| self.tr("common.select"));
-                    egui::ComboBox::from_id_salt("instance_modpack_update_version")
-                        .selected_text(selected)
-                        .width(ui.available_width())
-                        .show_ui(ui, |ui| {
-                            for version in &self.instance_modpack.versions {
-                                let label = if version.game_versions.is_empty() {
-                                    version.version_name.clone()
-                                } else {
-                                    format!(
-                                        "{} · {}",
-                                        version.version_name,
-                                        version.game_versions.join(", ")
-                                    )
-                                };
-                                ui.selectable_value(
-                                    &mut self.instance_modpack.selected_version,
-                                    Some(version.file_id.clone()),
-                                    label,
-                                );
-                            }
-                        });
-                    if ui
-                        .add_enabled(
-                            self.instance_modpack.selected_version.is_some()
-                                && active_update.is_none()
-                                && !update_pending,
-                            egui::Button::new(self.tr("configuration.update_modpack")),
-                        )
-                        .clicked()
-                    {
-                        self.instance_modpack.confirm_update =
-                            self.instance_modpack.selected_version.clone();
-                    }
-                } else if !self.instance_modpack.loading {
+                        .unwrap_or_else(|| self.tr("common.select"))
+                };
+                let can_update_selection = can_update_modpack(selected_id, &source.file_id);
+                egui::ComboBox::from_id_salt("instance_modpack_update_version")
+                    .selected_text(selected)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        let current_label =
+                            format!("{} · {}", current, self.tr("configuration.current_version"));
+                        ui.selectable_value(
+                            &mut self.instance_modpack.selected_version,
+                            Some(source.file_id.clone()),
+                            egui::RichText::new(current_label).strong(),
+                        );
+                        for version in &self.instance_modpack.versions {
+                            let label = if version.game_versions.is_empty() {
+                                version.version_name.clone()
+                            } else {
+                                format!(
+                                    "{} · {}",
+                                    version.version_name,
+                                    version.game_versions.join(", ")
+                                )
+                            };
+                            ui.selectable_value(
+                                &mut self.instance_modpack.selected_version,
+                                Some(version.file_id.clone()),
+                                label,
+                            );
+                        }
+                    });
+                let can_update = can_update_selection && active_update.is_none() && !update_pending;
+                if ui
+                    .add_enabled(
+                        can_update,
+                        egui::Button::new(self.tr("configuration.update_modpack")),
+                    )
+                    .clicked()
+                {
+                    self.instance_modpack.confirm_update =
+                        self.instance_modpack.selected_version.clone();
+                }
+                if self.instance_modpack.versions.is_empty() && !self.instance_modpack.loading {
                     ui.label(self.tr("configuration.no_modpack_updates"));
                 }
             } else {
@@ -700,9 +708,20 @@ fn modpack_provider_name(provider: &str) -> &str {
     }
 }
 
+fn can_update_modpack(selected: Option<&str>, current: &str) -> bool {
+    selected.is_some_and(|selected| selected != current)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn current_modpack_version_cannot_be_updated() {
+        assert!(!can_update_modpack(Some("current-id"), "current-id"));
+        assert!(can_update_modpack(Some("next-id"), "current-id"));
+        assert!(!can_update_modpack(None, "current-id"));
+    }
 
     #[test]
     fn modpack_providers_use_display_names() {

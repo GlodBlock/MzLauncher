@@ -403,6 +403,32 @@ impl MzApp {
     }
 
     fn instance_modpack_configuration(&mut self, ui: &mut egui::Ui, id: &str) {
+        let mut draft = self.draft_instance.clone();
+        if let Some(draft) = &mut draft {
+            egui::Grid::new("instance_modpack_name")
+                .num_columns(2)
+                .show(ui, |ui| {
+                    let control_height = crate::layout::button_height(ui);
+                    ui.spacing_mut().interact_size.y = control_height;
+                    ui.label(self.tr("configuration.instance_name"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut draft.name)
+                            .desired_width(ui.available_width())
+                            .min_size(egui::vec2(ui.available_width(), control_height))
+                            .vertical_align(egui::Align::Center),
+                    );
+                    if !valid_instance_name(&draft.name) {
+                        ui.end_row();
+                        ui.label("");
+                        ui.colored_label(
+                            ui.visuals().error_fg_color,
+                            self.tr("configuration.invalid_instance_name"),
+                        );
+                    }
+                    ui.end_row();
+                });
+            ui.separator();
+        }
         let active_update = self
             .jobs
             .iter()
@@ -559,6 +585,17 @@ impl MzApp {
                 }
             });
         self.modpack_update_confirmation(ui, id);
+        if let Some(draft) = draft {
+            let name_changed = self
+                .draft_instance
+                .as_ref()
+                .is_some_and(|current| current.name != draft.name);
+            let name_valid = valid_instance_name(&draft.name);
+            self.draft_instance = Some(draft.clone());
+            if name_changed && name_valid {
+                self.save_instance_configuration(draft);
+            }
+        }
     }
 
     pub(crate) fn request_instance_modpack_versions(&mut self, id: &str) {
@@ -650,9 +687,23 @@ fn positive_memory(value: &str) -> Option<u32> {
     value.parse::<u32>().ok().filter(|value| *value > 0)
 }
 
+fn valid_instance_name(name: &str) -> bool {
+    !name.trim().is_empty() && name.chars().count() <= 80 && !name.chars().any(char::is_control)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn instance_name_matches_core_validation() {
+        assert!(valid_instance_name("My instance"));
+        assert!(valid_instance_name(&"名".repeat(80)));
+        assert!(!valid_instance_name(""));
+        assert!(!valid_instance_name("   "));
+        assert!(!valid_instance_name(&"a".repeat(81)));
+        assert!(!valid_instance_name("bad\nname"));
+    }
 
     #[test]
     fn memory_input_requires_a_positive_integer() {

@@ -180,6 +180,8 @@
     "configuration.launch": "启动设置",
     "configuration.runtime": "运行库设置",
     "configuration.modpack": "整合包设置",
+    "configuration.instance_name": "实例名称：",
+    "configuration.invalid_instance_name": "请输入 1 到 80 个可打印字符。",
     "configuration.runtime_hint": "更改会自动保存，并在下次启动时下载安装所需运行库。已有 Mod 可能不兼容。",
     "configuration.lwjgl_version": "LWJGL 版本（留空使用 MC 默认）：",
     "configuration.lwjgl_hint": "例如 3.3.3",

@@ -180,6 +180,8 @@
     "configuration.launch": "Launch Settings",
     "configuration.runtime": "Runtime Settings",
     "configuration.modpack": "Modpack Settings",
+    "configuration.instance_name": "Instance name:",
+    "configuration.invalid_instance_name": "Enter 1 to 80 printable characters.",
     "configuration.runtime_hint": "Changes are saved automatically. The required runtime is downloaded and installed on the next launch. Existing mods may be incompatible.",
     "configuration.lwjgl_version": "LWJGL version (empty = Minecraft default):",
     "configuration.lwjgl_hint": "For example, 3.3.3",

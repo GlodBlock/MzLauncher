@@ -327,6 +327,13 @@ pub struct InstalledMod {
     pub installed_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModListPage {
+    pub items: Vec<InstalledMod>,
+    pub total: usize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ModpackEntryStatus {

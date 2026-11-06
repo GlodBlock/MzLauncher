@@ -59,7 +59,8 @@ fn instance_crud_works_through_the_real_protocol() {
     writer.write_all(b"png").unwrap();
     writer.finish().unwrap();
     let mods = client.call("mods", "mod.list", json!({"instanceId": id}));
-    let installed = &mods["result"][0];
+    assert_eq!(mods["result"]["total"], 1);
+    let installed = &mods["result"]["items"][0];
     assert_eq!(installed["file"]["projectName"], "Example Mod");
     assert_eq!(installed["file"]["versionName"], "1.2.3");
     let icon = client.call(
@@ -68,6 +69,26 @@ fn instance_crud_works_through_the_real_protocol() {
         json!({"id": installed["id"].as_str().unwrap()}),
     );
     assert_eq!(icon["result"], "cG5n");
+    for index in 0..10 {
+        std::fs::write(
+            mods_directory.join(format!("manual-{index}.jar")),
+            b"manual",
+        )
+        .unwrap();
+    }
+    let first_page = client.call(
+        "mods-first-page",
+        "mod.list",
+        json!({"instanceId": id, "offset": 0, "limit": 10}),
+    );
+    assert_eq!(first_page["result"]["total"], 11);
+    assert_eq!(first_page["result"]["items"].as_array().unwrap().len(), 10);
+    let second_page = client.call(
+        "mods-second-page",
+        "mod.list",
+        json!({"instanceId": id, "offset": 10, "limit": 10}),
+    );
+    assert_eq!(second_page["result"]["items"].as_array().unwrap().len(), 1);
     let modpack = client.call("modpack", "modpack.get", json!({"id": id}));
     assert!(modpack["result"].is_null());
     let copied = client.call("copy", "instance.copy", json!({"id": id, "name": "copy"}));

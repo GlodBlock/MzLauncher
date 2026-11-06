@@ -257,6 +257,13 @@ pub struct InstalledMod {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ModListPage {
+    pub items: Vec<InstalledMod>,
+    pub total: usize,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ModpackEntryResult {
     pub name: String,
     pub status: String,

@@ -430,11 +430,28 @@ impl ModService {
         Ok(installed)
     }
 
-    pub fn list(&self, instance_id: Uuid) -> CoreResult<Vec<InstalledMod>> {
+    pub fn list(
+        &self,
+        instance_id: Uuid,
+        offset: usize,
+        limit: usize,
+    ) -> CoreResult<crate::model::ModListPage> {
+        if limit == 0 || limit > 100 {
+            return Err(CoreError::InvalidInput(
+                "Mod page size must be between 1 and 100".into(),
+            ));
+        }
         self.store.instance(instance_id)?;
         self.scan_manual(instance_id)?;
-        let mut mods = self.store.mods(instance_id)?;
-        for installed in &mut mods {
+        let total = self.store.mods(instance_id)?.len();
+        let mut items = self
+            .store
+            .mods(instance_id)?
+            .into_iter()
+            .skip(offset)
+            .take(limit)
+            .collect::<Vec<_>>();
+        for installed in &mut items {
             if !matches!(
                 installed.file.provider,
                 ModProvider::Manual | ModProvider::Modpack
@@ -458,7 +475,7 @@ impl ModService {
                 self.store.save_mod(installed)?;
             }
         }
-        Ok(mods)
+        Ok(crate::model::ModListPage { items, total })
     }
 
     pub async fn metadata(&self, id: Uuid) -> CoreResult<InstalledMod> {

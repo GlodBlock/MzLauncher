@@ -12,6 +12,7 @@ use crate::skin::SkinCache;
 
 pub const PROTOCOL_VERSION: u32 = 2;
 pub const MODPACK_PAGE_SIZE: usize = 20;
+pub const MOD_PAGE_SIZE: usize = 10;
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -71,6 +72,9 @@ pub struct InstanceModpackConfiguration {
     pub selected_version: Option<String>,
     pub loading: bool,
     pub confirm_update: Option<String>,
+    pub mods_offset: usize,
+    pub mods_total: usize,
+    pub mods_loading: bool,
 }
 
 pub struct ModBrowser {
@@ -499,10 +503,21 @@ impl MzApp {
     }
 
     pub fn refresh_mods(&mut self, instance_id: &str) {
+        let offset = if self.selected_instance.as_deref() == Some(instance_id) {
+            self.instance_modpack.mods_offset
+        } else {
+            0
+        };
+        self.refresh_mods_page(instance_id, offset);
+    }
+
+    pub fn refresh_mods_page(&mut self, instance_id: &str, offset: usize) {
+        self.instance_modpack.mods_offset = offset;
+        self.instance_modpack.mods_loading = true;
         self.call(
             "mod.list",
-            json!({"instanceId": instance_id}),
-            json!({"instanceId": instance_id}),
+            json!({"instanceId": instance_id, "offset": offset, "limit": MOD_PAGE_SIZE}),
+            json!({"instanceId": instance_id, "offset": offset}),
         );
     }
 
@@ -612,6 +627,15 @@ impl MzApp {
                         selection.changelog.clear();
                         selection.changelog_loading = false;
                     }
+                }
+            }
+            "mod.list" => {
+                let id = pending.context.get("instanceId").and_then(Value::as_str);
+                if id == self.selected_instance.as_deref()
+                    && pending.context.get("offset").and_then(Value::as_u64)
+                        == Some(self.instance_modpack.mods_offset as u64)
+                {
+                    self.instance_modpack.mods_loading = false;
                 }
             }
             "modpack.analyze" => self.modpack.analyzing = false,
@@ -1057,10 +1081,18 @@ impl MzApp {
             }
             "mod.list" => {
                 if let Some(id) = pending.context.get("instanceId").and_then(Value::as_str) {
-                    let mods = parse_list(result);
-                    self.request_missing_mod_metadata(&mods);
-                    self.prepare_mod_icons(&mods);
-                    self.mods.insert(id.to_owned(), mods);
+                    let matches = self.selected_instance.as_deref() == Some(id)
+                        && pending.context.get("offset").and_then(Value::as_u64)
+                            == Some(self.instance_modpack.mods_offset as u64);
+                    if matches {
+                        if let Ok(page) = serde_json::from_value::<ModListPage>(result) {
+                            self.instance_modpack.mods_total = page.total;
+                            self.instance_modpack.mods_loading = false;
+                            self.request_missing_mod_metadata(&page.items);
+                            self.prepare_mod_icons(&page.items);
+                            self.mods.insert(id.to_owned(), page.items);
+                        }
+                    }
                 }
             }
             "mod.metadata" => {

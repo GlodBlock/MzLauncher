@@ -573,14 +573,70 @@ impl MzApp {
         if mods.is_empty() {
             ui.label(self.tr("mods.empty"));
         }
+        let show_pagination = self.instance_modpack.mods_total > crate::app::MOD_PAGE_SIZE;
+        let pagination_height = if show_pagination {
+            crate::layout::button_height(ui) + crate::layout::CARD_LIST_GAP
+        } else {
+            0.0
+        };
+        let list_height = (ui.available_height() - pagination_height).max(0.0);
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
+            .max_height(list_height)
             .show(ui, |ui| {
                 for installed in mods {
                     self.installed_mod_row(ui, id, &installed);
                     ui.add_space(crate::layout::CARD_LIST_GAP);
                 }
             });
+        if show_pagination {
+            ui.add_space(crate::layout::CARD_LIST_GAP);
+            let previous_page = self.tr("action.previous_page");
+            let next_page = self.tr("action.next_page");
+            let page_button_width = crate::layout::button_width(ui, previous_page.clone())
+                .max(crate::layout::button_width(ui, next_page.clone()));
+            let offset = self.instance_modpack.mods_offset;
+            let total = self.instance_modpack.mods_total;
+            let loading = self.instance_modpack.mods_loading;
+            let mut page = None;
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(
+                        !loading && offset >= crate::app::MOD_PAGE_SIZE,
+                        egui::Button::new(previous_page)
+                            .min_size(egui::vec2(page_button_width, 0.0)),
+                    )
+                    .clicked()
+                {
+                    page = Some(offset.saturating_sub(crate::app::MOD_PAGE_SIZE));
+                }
+                ui.label(self.trf(
+                    "configuration.mods_page",
+                    &[
+                        (
+                            "current",
+                            &(offset / crate::app::MOD_PAGE_SIZE + 1).to_string(),
+                        ),
+                        (
+                            "total",
+                            &total.div_ceil(crate::app::MOD_PAGE_SIZE).to_string(),
+                        ),
+                    ],
+                ));
+                if ui
+                    .add_enabled(
+                        !loading && offset.saturating_add(crate::app::MOD_PAGE_SIZE) < total,
+                        egui::Button::new(next_page).min_size(egui::vec2(page_button_width, 0.0)),
+                    )
+                    .clicked()
+                {
+                    page = Some(offset.saturating_add(crate::app::MOD_PAGE_SIZE));
+                }
+            });
+            if let Some(offset) = page {
+                self.refresh_mods_page(id, offset);
+            }
+        }
         self.modpack_update_confirmation(ui, id);
         if let Some(draft) = draft {
             let name_changed = self

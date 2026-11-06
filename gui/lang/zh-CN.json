@@ -204,6 +204,7 @@
     "configuration.mod_version_unknown": "未知版本",
     "configuration.enable_mod": "启用 Mod",
     "configuration.disable_mod": "禁用 Mod",
+    "configuration.mods_page": "第 {current} / {total} 页",
 
     "overview.status": "状态：{status}",
     "overview.last_launch": "最近启动：{time}",

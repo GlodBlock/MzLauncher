@@ -204,6 +204,7 @@
     "configuration.mod_version_unknown": "Unknown version",
     "configuration.enable_mod": "Enable Mod",
     "configuration.disable_mod": "Disable Mod",
+    "configuration.mods_page": "Page {current} / {total}",
 
     "overview.status": "Status: {status}",
     "overview.last_launch": "Last launched: {time}",

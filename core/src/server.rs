@@ -490,10 +490,11 @@ impl Server {
             }
             "mod.list" => {
                 let params: ModRequest = parse_params(&request.params)?;
-                Ok(serde_json::to_value(
-                    self.mods
-                        .list(required(params.instance_id, "instanceId")?)?,
-                )?)
+                Ok(serde_json::to_value(self.mods.list(
+                    required(params.instance_id, "instanceId")?,
+                    params.offset.unwrap_or(0),
+                    params.limit.unwrap_or(10),
+                )?)?)
             }
             "mod.metadata" => {
                 let params: ModRequest = parse_params(&request.params)?;
@@ -750,6 +751,8 @@ struct ModRequest {
     file: Option<ModFile>,
     id: Option<Uuid>,
     enabled: Option<bool>,
+    offset: Option<usize>,
+    limit: Option<usize>,
     key: Option<String>,
     idempotency_key: Option<String>,
 }

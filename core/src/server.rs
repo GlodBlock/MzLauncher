@@ -529,6 +529,10 @@ impl Server {
                 self.mods.delete_curseforge_key()?;
                 Ok(Value::Null)
             }
+            "modpack.get" => {
+                let params: InstanceRequest = parse_params(&request.params)?;
+                Ok(serde_json::to_value(self.modpacks.get(params.id)?)?)
+            }
             "modpack.analyze" => {
                 let params: ModpackRequest = parse_params(&request.params)?;
                 Ok(serde_json::to_value(
@@ -599,6 +603,61 @@ impl Server {
                             }
                         }))?;
                         service.import_remote(params, &context).await
+                    },
+                )?;
+                Ok(serde_json::to_value(job)?)
+            }
+            "modpack.update" => {
+                let params: crate::modpack_browser::ModpackDownloadParams =
+                    parse_params(&request.params)?;
+                crate::modpack_browser::validate_remote_id(&params.project_id)?;
+                let instance_id = params
+                    .instance_id
+                    .ok_or_else(|| CoreError::InvalidInput("instanceId is required".into()))?;
+                let file_id = params
+                    .file_id
+                    .as_deref()
+                    .ok_or_else(|| CoreError::InvalidInput("fileId is required".into()))?;
+                crate::modpack_browser::validate_remote_id(file_id)?;
+                if self
+                    .launch
+                    .status(instance_id)
+                    .await?
+                    .is_some_and(|status| {
+                        matches!(
+                            status.status,
+                            crate::model::GameStatus::Starting
+                                | crate::model::GameStatus::Running
+                                | crate::model::GameStatus::Stopping
+                        )
+                    })
+                {
+                    return Err(CoreError::Conflict(
+                        "stop the game before updating this modpack".into(),
+                    ));
+                }
+                let service = self.modpacks.clone();
+                let idempotency_key = params.idempotency_key.clone();
+                let job = self.jobs.submit(
+                    JobKind::Import,
+                    Some(instance_id),
+                    idempotency_key,
+                    move |context| async move {
+                        context.checkpoint(serde_json::json!({
+                            "stage": "queued",
+                            "instanceId": instance_id,
+                            "update": true,
+                            "modpack": {
+                                "provider": params.provider,
+                                "projectId": &params.project_id,
+                                "projectName": &params.project_name,
+                                "projectIconUrl": &params.project_icon_url,
+                                "fileId": &params.file_id,
+                                "gameVersion": &params.game_version,
+                                "loader": params.loader,
+                            }
+                        }))?;
+                        service.update(params, &context).await
                     },
                 )?;
                 Ok(serde_json::to_value(job)?)

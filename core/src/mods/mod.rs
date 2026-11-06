@@ -903,6 +903,7 @@ mod tests {
             game_version: "1.21.1".into(),
             loader: LoaderKind::Fabric,
             loader_version: Some("0.16.10".into()),
+            lwjgl_version: None,
             install_status: InstallStatus::Installed,
             java_path: None,
             min_memory_mb: 512,

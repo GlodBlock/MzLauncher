@@ -87,6 +87,7 @@ impl InstanceService {
             game_version: params.game_version,
             loader: params.loader,
             loader_version: params.loader_version,
+            lwjgl_version: None,
             install_status: InstallStatus::NotInstalled,
             java_path,
             min_memory_mb,
@@ -141,6 +142,7 @@ impl InstanceService {
         validate_memory(instance.min_memory_mb, instance.max_memory_mb)?;
         validate_arguments(&instance.jvm_args)?;
         validate_arguments(&instance.game_args)?;
+        validate_lwjgl_version(instance.lwjgl_version.as_deref())?;
         if instance.game_version.is_empty()
             || instance.game_version.contains(['/', '\\', '\0'])
             || (instance.loader != LoaderKind::Vanilla && instance.loader_version.is_none())
@@ -151,7 +153,8 @@ impl InstanceService {
         }
         let version_changed = current.game_version != instance.game_version
             || current.loader != instance.loader
-            || current.loader_version != instance.loader_version;
+            || current.loader_version != instance.loader_version
+            || current.lwjgl_version != instance.lwjgl_version;
         instance.created_at = current.created_at;
         instance.install_status = if version_changed {
             InstallStatus::NotInstalled
@@ -163,6 +166,20 @@ impl InstanceService {
         instance.updated_at = Utc::now();
         self.store.save_instance(&instance)?;
         Ok(instance)
+    }
+
+    pub fn update_modpack_runtime(
+        &self,
+        id: Uuid,
+        game_version: String,
+        loader: LoaderKind,
+        loader_version: Option<String>,
+    ) -> CoreResult<Instance> {
+        let mut instance = self.store.instance(id)?;
+        instance.game_version = game_version;
+        instance.loader = loader;
+        instance.loader_version = loader_version;
+        self.update_settings(instance)
     }
 
     pub async fn copy(&self, id: Uuid, name: String) -> CoreResult<Instance> {
@@ -313,6 +330,19 @@ fn validate_memory(minimum: u32, maximum: u32) -> CoreResult<()> {
         return Err(CoreError::InvalidInput(
             "memory must be between 256 and 131072 MiB, and minimum cannot exceed maximum".into(),
         ));
+    }
+    Ok(())
+}
+
+fn validate_lwjgl_version(version: Option<&str>) -> CoreResult<()> {
+    if version.is_some_and(|version| {
+        version.is_empty()
+            || version.len() > 100
+            || !version
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || ".-_".contains(character))
+    }) {
+        return Err(CoreError::InvalidInput("invalid LWJGL version".into()));
     }
     Ok(())
 }

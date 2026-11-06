@@ -47,6 +47,8 @@ pub fn capabilities() -> Vec<String> {
         "ftb".into(),
         "modpack_import".into(),
         "modpack_browser".into(),
+        "modpack_update".into(),
+        "lwjgl_override".into(),
     ];
     if DEBUG_AUTH {
         capabilities.push("debug_auth".into());

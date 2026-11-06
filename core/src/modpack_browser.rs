@@ -59,8 +59,23 @@ pub struct ModpackDownloadParams {
 }
 
 pub enum RemoteModpack {
-    Archive { path: PathBuf, name: String },
-    Prepared(ModpackAnalysis),
+    Archive {
+        path: PathBuf,
+        name: String,
+        file_id: String,
+    },
+    Prepared {
+        analysis: ModpackAnalysis,
+        file_id: String,
+    },
+}
+
+impl RemoteModpack {
+    pub fn file_id(&self) -> &str {
+        match self {
+            Self::Archive { file_id, .. } | Self::Prepared { file_id, .. } => file_id,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -181,7 +196,10 @@ impl ModpackBrowserService {
             validate_remote_id(file_id)?;
         }
         match params.provider {
-            ModProvider::Ftb => self.fetch_ftb(params).await.map(RemoteModpack::Prepared),
+            ModProvider::Ftb => {
+                let (analysis, file_id) = self.fetch_ftb(params).await?;
+                Ok(RemoteModpack::Prepared { analysis, file_id })
+            }
             ModProvider::Modrinth | ModProvider::CurseForge => {
                 let file = if let Some(file_id) = &params.file_id {
                     let file = self
@@ -252,7 +270,11 @@ impl ModpackBrowserService {
                     .filter(|name| !name.trim().is_empty())
                     .unwrap_or(&file.project_name)
                     .to_owned();
-                Ok(RemoteModpack::Archive { path, name })
+                Ok(RemoteModpack::Archive {
+                    path,
+                    name,
+                    file_id: file.file_id,
+                })
             }
             _ => Err(CoreError::InvalidInput("invalid modpack provider".into())),
         }
@@ -350,7 +372,10 @@ impl ModpackBrowserService {
         .await
     }
 
-    async fn fetch_ftb(&self, params: &ModpackDownloadParams) -> CoreResult<ModpackAnalysis> {
+    async fn fetch_ftb(
+        &self,
+        params: &ModpackDownloadParams,
+    ) -> CoreResult<(ModpackAnalysis, String)> {
         let project_id = params
             .project_id
             .parse::<u64>()
@@ -445,20 +470,24 @@ impl ModpackBrowserService {
             .iter()
             .filter(|file| file.path.starts_with("mods/") && file.path.ends_with(".jar"))
             .count();
-        Ok(ModpackAnalysis {
-            format: ModpackFormat::Ftb,
-            name: project.name,
-            version: Some(manifest.name),
-            author: project.authors.first().map(|author| author.name.clone()),
-            game_version,
-            loader,
-            loader_version,
-            mod_count,
-            override_prefixes: Vec::new(),
-            warnings,
-            source_sha256,
-            files,
-        })
+        let file_id = version.id.to_string();
+        Ok((
+            ModpackAnalysis {
+                format: ModpackFormat::Ftb,
+                name: project.name,
+                version: Some(manifest.name),
+                author: project.authors.first().map(|author| author.name.clone()),
+                game_version,
+                loader,
+                loader_version,
+                mod_count,
+                override_prefixes: Vec::new(),
+                warnings,
+                source_sha256,
+                files,
+            },
+            file_id,
+        ))
     }
 }
 

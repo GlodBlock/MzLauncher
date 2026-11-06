@@ -248,26 +248,33 @@ impl VersionService {
     }
 
     pub async fn merged_for_instance(&self, instance: &Instance) -> CoreResult<MergedVersion> {
-        if instance.loader == crate::model::LoaderKind::Vanilla {
-            return self.merged(&instance.game_version).await;
-        }
-        let profile_id = loader_profile_id(instance);
-        let path = self
-            .paths
-            .content
-            .join("versions")
-            .join(&profile_id)
-            .join(format!("{profile_id}.json"));
-        let details: VersionDetails = serde_json::from_slice(&tokio::fs::read(&path).await?)?;
-        let parent = details.inherits_from.clone().ok_or_else(|| {
-            CoreError::InvalidInput(format!("loader profile {profile_id} has no parent version"))
-        })?;
-        let mut merged = self.merged(&parent).await?;
-        apply_details(&mut merged, details);
-        if merged.main_class.is_empty() {
-            return Err(CoreError::InvalidInput(
-                "loader profile has no main class".into(),
-            ));
+        let mut merged = if instance.loader == crate::model::LoaderKind::Vanilla {
+            self.merged(&instance.game_version).await?
+        } else {
+            let profile_id = loader_profile_id(instance);
+            let path = self
+                .paths
+                .content
+                .join("versions")
+                .join(&profile_id)
+                .join(format!("{profile_id}.json"));
+            let details: VersionDetails = serde_json::from_slice(&tokio::fs::read(&path).await?)?;
+            let parent = details.inherits_from.clone().ok_or_else(|| {
+                CoreError::InvalidInput(format!(
+                    "loader profile {profile_id} has no parent version"
+                ))
+            })?;
+            let mut merged = self.merged(&parent).await?;
+            apply_details(&mut merged, details);
+            if merged.main_class.is_empty() {
+                return Err(CoreError::InvalidInput(
+                    "loader profile has no main class".into(),
+                ));
+            }
+            merged
+        };
+        if let Some(version) = instance.lwjgl_version.as_deref() {
+            apply_lwjgl_override(&mut merged, version)?;
         }
         Ok(merged)
     }
@@ -597,6 +604,42 @@ pub fn java_arch() -> &'static str {
     }
 }
 
+fn apply_lwjgl_override(merged: &mut MergedVersion, version: &str) -> CoreResult<()> {
+    for library in &mut merged.libraries {
+        let mut parts = library.name.split(':');
+        let (Some(group), Some(artifact), Some(_), None) =
+            (parts.next(), parts.next(), parts.next(), parts.next())
+        else {
+            continue;
+        };
+        if !matches!(group, "org.lwjgl" | "org.lwjgl.lwjgl") {
+            continue;
+        }
+        library.name = format!("{group}:{artifact}:{version}");
+        library.downloads = LibraryDownloads::default();
+        library.url = Some("https://libraries.minecraft.net".into());
+        library.sha1 = None;
+        library.sha256 = None;
+        library.size = None;
+        let artifact = library_artifact(library)?;
+        let mut classifiers = HashMap::new();
+        for classifier in library.natives.values() {
+            let resolved = classifier.replace("${arch}", java_arch());
+            let native = Library {
+                name: format!("{}:{resolved}", library.name),
+                url: library.url.clone(),
+                ..Library::default()
+            };
+            classifiers.insert(classifier.clone(), library_artifact(&native)?);
+        }
+        library.downloads = LibraryDownloads {
+            artifact: Some(artifact),
+            classifiers,
+        };
+    }
+    Ok(())
+}
+
 pub fn library_artifact(library: &Library) -> CoreResult<RemoteFile> {
     let artifact = library.downloads.artifact.as_ref();
     if artifact.is_some_and(|artifact| !artifact.url.trim().is_empty()) {
@@ -793,5 +836,28 @@ mod tests {
         assert_eq!(arguments.jvm.len(), 2);
         assert_eq!(merged.id, "loader-profile");
         assert_eq!(merged.main_class, "loader.Main");
+    }
+
+    #[test]
+    fn lwjgl_override_replaces_artifacts_and_native_classifiers() {
+        let mut merged = MergedVersion {
+            libraries: vec![Library {
+                name: "org.lwjgl:lwjgl:3.3.1".into(),
+                natives: HashMap::from([("windows".into(), "natives-windows".into())]),
+                ..Library::default()
+            }],
+            ..MergedVersion::default()
+        };
+        apply_lwjgl_override(&mut merged, "3.3.3").unwrap();
+        let library = &merged.libraries[0];
+        assert_eq!(library.name, "org.lwjgl:lwjgl:3.3.3");
+        assert_eq!(
+            library.downloads.artifact.as_ref().unwrap().url,
+            "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar"
+        );
+        assert_eq!(
+            library.downloads.classifiers["natives-windows"].url,
+            "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar"
+        );
     }
 }

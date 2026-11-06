@@ -261,6 +261,12 @@ fn searches_remote_modpacks_and_validates_installation() {
         json!({"provider":"ftb","projectId":"../125","projectName":"FTB Evolution"}),
     );
     assert_eq!(invalid["error"]["code"], "invalid_input");
+    let invalid_update = client.call(
+        "invalid-update",
+        "modpack.update",
+        json!({"provider":"ftb","projectId":"125","fileId":"500"}),
+    );
+    assert_eq!(invalid_update["error"]["code"], "invalid_input");
     client.call("stop", "system.shutdown", Value::Null);
     drop(client);
     assert!(child.wait().unwrap().success());

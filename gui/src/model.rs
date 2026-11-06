@@ -20,6 +20,8 @@ pub struct Instance {
     pub game_version: String,
     pub loader: String,
     pub loader_version: Option<String>,
+    #[serde(default)]
+    pub lwjgl_version: Option<String>,
     pub install_status: String,
     pub java_path: Option<String>,
     pub min_memory_mb: u32,
@@ -245,7 +247,6 @@ pub struct ModDependency {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InstalledMod {
-    pub id: String,
     pub file: ModFile,
     pub enabled: bool,
     pub managed: bool,
@@ -257,6 +258,22 @@ pub struct ModpackEntryResult {
     pub name: String,
     pub status: String,
     pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModpackSource {
+    pub provider: String,
+    pub project_id: String,
+    pub file_id: String,
+    pub project_icon_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModpackRecord {
+    pub source_name: String,
+    pub source: Option<ModpackSource>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

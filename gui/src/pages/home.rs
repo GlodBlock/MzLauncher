@@ -1,7 +1,7 @@
 use eframe::egui;
 use serde_json::json;
 
-use crate::app::{DetailTab, MzApp, Page};
+use crate::app::{MzApp, Page};
 
 impl MzApp {
     pub fn home_page(&mut self, ui: &mut egui::Ui) {
@@ -58,9 +58,8 @@ impl MzApp {
                 )));
                 self.instance_buttons(ui, &instance.id, &instance.install_status);
                 if ui.button(self.tr("action.details")).clicked() {
-                    self.selected_instance = Some(instance.id.clone());
-                    self.detail_tab = DetailTab::Overview;
                     self.page = Page::Instances;
+                    self.open_instance_configuration(&instance.id);
                 }
             });
         }

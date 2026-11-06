@@ -18,11 +18,14 @@ fn instance_crud_works_through_the_real_protocol() {
         stdin: child.stdin.take().unwrap(),
         stdout: BufReader::new(child.stdout.take().unwrap()),
     };
-    client.call(
+    let handshake = client.call(
         "hello",
         "system.handshake",
         json!({"clientVersion": "test", "minProtocol": 2, "maxProtocol": 2}),
     );
+    let capabilities = handshake["result"]["capabilities"].as_array().unwrap();
+    assert!(capabilities.contains(&json!("lwjgl_override")));
+    assert!(capabilities.contains(&json!("modpack_update")));
     let created = client.call(
         "create",
         "instance.create",
@@ -36,6 +39,12 @@ fn instance_crud_works_through_the_real_protocol() {
     );
     assert_eq!(created["result"]["totalPlayTimeMs"], 0);
     let id = created["result"]["id"].as_str().unwrap().to_owned();
+    let mut update = created["result"].clone();
+    update["lwjglVersion"] = json!("3.3.3");
+    let updated = client.call("update", "instance.update", update);
+    assert_eq!(updated["result"]["lwjglVersion"], "3.3.3");
+    let modpack = client.call("modpack", "modpack.get", json!({"id": id}));
+    assert!(modpack["result"].is_null());
     let copied = client.call("copy", "instance.copy", json!({"id": id, "name": "copy"}));
     assert_ne!(copied["result"]["id"], id);
     assert_eq!(copied["result"]["totalPlayTimeMs"], 0);

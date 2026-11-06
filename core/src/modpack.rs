@@ -14,7 +14,7 @@ use crate::instance::InstanceService;
 use crate::job::JobContext;
 use crate::model::{
     CreateInstanceParams, InstallStatus, LoaderKind, ModFile, ModProvider, ModpackEntryResult,
-    ModpackEntryStatus, ModpackRecord, ReleaseChannel,
+    ModpackEntryStatus, ModpackRecord, ModpackSource, ReleaseChannel,
 };
 use crate::mods::ModService;
 use crate::paths::{safe_relative_path, AppPaths};
@@ -241,6 +241,53 @@ impl ModpackService {
         self.browser.icon(url).await
     }
 
+    pub fn get(&self, instance_id: uuid::Uuid) -> CoreResult<Option<ModpackRecord>> {
+        let Some(mut record) = self.store.modpack(instance_id)? else {
+            return Ok(None);
+        };
+        if record.source.is_none() {
+            let instance_id_text = instance_id.to_string();
+            record.source = self
+                .store
+                .jobs()?
+                .into_iter()
+                .filter(|job| {
+                    job.kind == crate::model::JobKind::Import
+                        && job.status == crate::model::JobStatus::Succeeded
+                        && (job.target == Some(instance_id)
+                            || job
+                                .checkpoint
+                                .as_ref()
+                                .and_then(|checkpoint| checkpoint.get("instanceId"))
+                                .and_then(Value::as_str)
+                                == Some(instance_id_text.as_str())
+                            || job
+                                .result
+                                .as_ref()
+                                .and_then(|result| result.get("instanceId"))
+                                .and_then(Value::as_str)
+                                == Some(instance_id_text.as_str()))
+                })
+                .filter_map(|job| job.checkpoint)
+                .find_map(|checkpoint| {
+                    let source = checkpoint.get("modpack")?;
+                    Some(ModpackSource {
+                        provider: serde_json::from_value(source.get("provider")?.clone()).ok()?,
+                        project_id: source.get("projectId")?.as_str()?.to_owned(),
+                        file_id: source.get("fileId")?.as_str()?.to_owned(),
+                        project_icon_url: source
+                            .get("projectIconUrl")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned),
+                    })
+                });
+            if record.source.is_some() {
+                self.store.save_modpack(&record)?;
+            }
+        }
+        Ok(Some(record))
+    }
+
     pub async fn import(
         &self,
         path: &Path,
@@ -254,6 +301,8 @@ impl ModpackService {
             name,
             None,
             None,
+            None,
+            false,
             context,
         )
         .await
@@ -267,26 +316,114 @@ impl ModpackService {
         let name = params.name.clone();
         let instance_id = params.instance_id;
         let resume = match instance_id {
-            Some(id) => self.resume_checkpoint(id, context.id())?,
+            Some(id) => self.resume_checkpoint(id, context.id(), params.file_id.as_deref())?,
             None => None,
         };
-        match self.browser.fetch(&params, context).await? {
-            crate::modpack_browser::RemoteModpack::Archive { path, name: source } => {
+        let remote = self.browser.fetch(&params, context).await?;
+        let source = Self::remote_source(&params, remote.file_id());
+        match remote {
+            crate::modpack_browser::RemoteModpack::Archive {
+                path,
+                name: source_name,
+                ..
+            } => {
                 let analysis = self.analyze(&path).await?;
                 self.import_analysis(
                     analysis,
                     Some(path),
-                    name.or(Some(source)),
+                    name.or(Some(source_name)),
                     instance_id,
                     resume,
+                    Some(source),
+                    false,
                     context,
                 )
                 .await
             }
-            crate::modpack_browser::RemoteModpack::Prepared(analysis) => {
-                self.import_analysis(analysis, None, name, instance_id, resume, context)
-                    .await
+            crate::modpack_browser::RemoteModpack::Prepared { analysis, .. } => {
+                self.import_analysis(
+                    analysis,
+                    None,
+                    name,
+                    instance_id,
+                    resume,
+                    Some(source),
+                    false,
+                    context,
+                )
+                .await
             }
+        }
+    }
+
+    pub async fn update(
+        &self,
+        params: crate::modpack_browser::ModpackDownloadParams,
+        context: &JobContext,
+    ) -> CoreResult<Value> {
+        let instance_id = params
+            .instance_id
+            .ok_or_else(|| CoreError::InvalidInput("instanceId is required".into()))?;
+        self.instances.get(instance_id)?;
+        let record = self
+            .store
+            .modpack(instance_id)?
+            .ok_or_else(|| CoreError::NotFound("installed modpack".into()))?;
+        let current = record.source.clone().ok_or_else(|| {
+            CoreError::Unsupported("local modpacks cannot check for updates".into())
+        })?;
+        if params.provider != current.provider || params.project_id != current.project_id {
+            return Err(CoreError::InvalidInput(
+                "modpack update source does not match the installed project".into(),
+            ));
+        }
+        let file_id = params
+            .file_id
+            .as_deref()
+            .ok_or_else(|| CoreError::InvalidInput("fileId is required".into()))?;
+        if file_id == current.file_id {
+            return Err(CoreError::Conflict(
+                "the selected modpack version is already installed".into(),
+            ));
+        }
+        let remote = self.browser.fetch(&params, context).await?;
+        let source = Self::remote_source(&params, remote.file_id());
+        let (analysis, archive) = match remote {
+            crate::modpack_browser::RemoteModpack::Archive { path, .. } => {
+                (self.analyze(&path).await?, Some(path))
+            }
+            crate::modpack_browser::RemoteModpack::Prepared { analysis, .. } => (analysis, None),
+        };
+        self.instances.update_modpack_runtime(
+            instance_id,
+            analysis.game_version.clone(),
+            analysis.loader,
+            analysis.loader_version.clone(),
+        )?;
+        self.remove_old_pack_files(instance_id, &record, context)
+            .await?;
+        self.import_analysis(
+            analysis,
+            archive,
+            None,
+            Some(instance_id),
+            None,
+            Some(source),
+            true,
+            context,
+        )
+        .await
+    }
+
+    fn remote_source(
+        params: &crate::modpack_browser::ModpackDownloadParams,
+        file_id: &str,
+    ) -> ModpackSource {
+        ModpackSource {
+            provider: params.provider,
+            project_id: params.project_id.clone(),
+            file_id: file_id.to_owned(),
+            project_icon_url: params.project_icon_url.clone(),
         }
     }
 
@@ -294,6 +431,7 @@ impl ModpackService {
         &self,
         instance_id: uuid::Uuid,
         current_job_id: uuid::Uuid,
+        file_id: Option<&str>,
     ) -> CoreResult<Option<Value>> {
         let instance_id = instance_id.to_string();
         Ok(self
@@ -304,7 +442,54 @@ impl ModpackService {
             .filter_map(|job| job.checkpoint)
             .find(|checkpoint| {
                 checkpoint.get("instanceId").and_then(Value::as_str) == Some(instance_id.as_str())
+                    && file_id.is_none_or(|file_id| {
+                        checkpoint
+                            .get("modpack")
+                            .and_then(|source| source.get("fileId"))
+                            .and_then(Value::as_str)
+                            == Some(file_id)
+                    })
             }))
+    }
+
+    async fn remove_old_pack_files(
+        &self,
+        instance_id: uuid::Uuid,
+        record: &ModpackRecord,
+        context: &JobContext,
+    ) -> CoreResult<()> {
+        context.progress(crate::model::JobProgress {
+            stage: "updating_modpack".into(),
+            ..crate::model::JobProgress::default()
+        })?;
+        let root = self.paths.instance(instance_id);
+        let mut old_mod_names = HashSet::new();
+        for entry in record.entries.iter().filter(|entry| {
+            entry.status == ModpackEntryStatus::Imported
+                && ["mods/", "config/", "resourcepacks/"]
+                    .iter()
+                    .any(|prefix| entry.name.replace('\\', "/").starts_with(prefix))
+        }) {
+            context.check_cancelled()?;
+            let normalized = entry.name.replace('\\', "/");
+            let path = root.join(safe_relative_path(&normalized)?);
+            if path.is_file() {
+                tokio::fs::remove_file(path).await?;
+            }
+            if let Some(name) = normalized.strip_prefix("mods/") {
+                old_mod_names.insert(name.to_owned());
+                let disabled = root.join(safe_relative_path(&format!("{normalized}.disabled"))?);
+                if disabled.is_file() {
+                    tokio::fs::remove_file(disabled).await?;
+                }
+            }
+        }
+        for installed in self.store.mods(instance_id)? {
+            if old_mod_names.contains(&installed.file.file_name) {
+                self.store.delete_mod(installed.id)?;
+            }
+        }
+        Ok(())
     }
 
     async fn import_analysis(
@@ -314,6 +499,8 @@ impl ModpackService {
         name: Option<String>,
         existing_instance_id: Option<uuid::Uuid>,
         resume: Option<Value>,
+        source: Option<ModpackSource>,
+        updating: bool,
         context: &JobContext,
     ) -> CoreResult<Value> {
         let existing = match existing_instance_id {
@@ -324,14 +511,16 @@ impl ModpackService {
             },
             None => None,
         };
-        if let Some(instance) = &existing {
-            if instance.game_version != analysis.game_version
-                || instance.loader != analysis.loader
-                || instance.loader_version != analysis.loader_version
-            {
-                return Err(CoreError::InvalidInput(
-                    "modpack does not match the instance being resumed".into(),
-                ));
+        if !updating {
+            if let Some(instance) = &existing {
+                if instance.game_version != analysis.game_version
+                    || instance.loader != analysis.loader
+                    || instance.loader_version != analysis.loader_version
+                {
+                    return Err(CoreError::InvalidInput(
+                        "modpack does not match the instance being resumed".into(),
+                    ));
+                }
             }
         }
         let resuming = existing.is_some();
@@ -485,9 +674,12 @@ impl ModpackService {
         if let Some(archive) = archive {
             let destination = self.paths.instance(instance.id);
             let prefixes = analysis.override_prefixes.clone();
-            tokio::task::spawn_blocking(move || apply_overrides(&archive, &destination, &prefixes))
-                .await
-                .map_err(|error| CoreError::Internal(error.to_string()))??;
+            let mut overrides = tokio::task::spawn_blocking(move || {
+                apply_overrides(&archive, &destination, &prefixes)
+            })
+            .await
+            .map_err(|error| CoreError::Internal(error.to_string()))??;
+            entries.append(&mut overrides);
         }
         let complete = entries.iter().all(|entry| {
             matches!(
@@ -506,6 +698,7 @@ impl ModpackService {
             source_sha256: analysis.source_sha256.clone(),
             imported_at: chrono::Utc::now(),
             entries: entries.clone(),
+            source,
         };
         self.store.save_modpack(&record)?;
         Ok(serde_json::json!({
@@ -820,10 +1013,15 @@ fn read_limited(reader: &mut impl Read) -> CoreResult<String> {
     String::from_utf8(bytes).map_err(|_| CoreError::InvalidInput("manifest is not UTF-8".into()))
 }
 
-fn apply_overrides(archive_path: &Path, destination: &Path, prefixes: &[String]) -> CoreResult<()> {
+fn apply_overrides(
+    archive_path: &Path,
+    destination: &Path,
+    prefixes: &[String],
+) -> CoreResult<Vec<ModpackEntryResult>> {
     let file = std::fs::File::open(archive_path)?;
     let mut archive = zip::ZipArchive::new(file)?;
     let mut total = 0_u64;
+    let mut entries = Vec::new();
     for index in 0..archive.len() {
         let entry = archive.by_index(index)?;
         inspect_entry(&entry)?;
@@ -838,6 +1036,7 @@ fn apply_overrides(archive_path: &Path, destination: &Path, prefixes: &[String])
             continue;
         }
         let relative = safe_relative_path(relative)?;
+        let name = relative.to_string_lossy().replace('\\', "/");
         let output = destination.join(relative);
         if let Some(parent) = output.parent() {
             std::fs::create_dir_all(parent)?;
@@ -850,8 +1049,13 @@ fn apply_overrides(archive_path: &Path, destination: &Path, prefixes: &[String])
                 "override extraction exceeds resource limits".into(),
             ));
         }
+        entries.push(ModpackEntryResult {
+            name,
+            status: ModpackEntryStatus::Imported,
+            detail: None,
+        });
     }
-    Ok(())
+    Ok(entries)
 }
 
 fn existing_prefixes(archive: &zip::ZipArchive<std::fs::File>, candidates: &[&str]) -> Vec<String> {
@@ -1236,6 +1440,206 @@ mod tests {
         assert!(!root.join("mods/322506-7588844.jar").exists());
         assert!(!root.join("mods/627557-8884654.jar").exists());
         assert!(store.mods(instance.id).unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn update_cleanup_preserves_untracked_and_non_pack_content() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = AppPaths::new(temp.path().join("data"));
+        paths.initialize().unwrap();
+        let store = Arc::new(Store::open(&paths).unwrap());
+        let config = Arc::new(crate::config::ConfigManager::load(paths.clone()).unwrap());
+        let downloader = Downloader::new(crate::config::DownloadConfig::default()).unwrap();
+        let endpoints = crate::config::EndpointConfig::default();
+        let instances = InstanceService::new(
+            paths.clone(),
+            store.clone(),
+            downloader.clone(),
+            endpoints.clone(),
+            Arc::new(parking_lot::RwLock::new(paths.runtimes.clone())),
+            config,
+        );
+        let mods = ModService::new(
+            paths.clone(),
+            store.clone(),
+            downloader.clone(),
+            endpoints.clone(),
+        )
+        .unwrap();
+        let service = ModpackService::new(
+            paths.clone(),
+            store.clone(),
+            downloader,
+            instances.clone(),
+            mods,
+            endpoints.ftb_api,
+        )
+        .unwrap();
+        let instance = instances
+            .create(CreateInstanceParams {
+                name: "update-test".into(),
+                description: None,
+                game_version: "1.21.1".into(),
+                loader: LoaderKind::Vanilla,
+                loader_version: None,
+                java_path: None,
+                min_memory_mb: Some(512),
+                max_memory_mb: Some(4096),
+                jvm_args: Some(Vec::new()),
+                game_args: Vec::new(),
+                account_id: None,
+            })
+            .unwrap();
+        let root = paths.instance(instance.id);
+        for name in [
+            "mods/old.jar",
+            "mods/old.jar.disabled",
+            "config/old.cfg",
+            "resourcepacks/old.zip",
+            "saves/world/level.dat",
+            "shaderpacks/old.zip",
+            "options.txt",
+            "config/user.cfg",
+            "mods/user.jar",
+        ] {
+            let path = root.join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, name).unwrap();
+        }
+        for (name, managed) in [("old.jar", true), ("user.jar", false)] {
+            store
+                .save_mod(&crate::model::InstalledMod {
+                    id: uuid::Uuid::new_v4(),
+                    instance_id: instance.id,
+                    file: ModFile {
+                        provider: if managed {
+                            ModProvider::Modpack
+                        } else {
+                            ModProvider::Manual
+                        },
+                        project_id: name.into(),
+                        file_id: name.into(),
+                        project_name: name.into(),
+                        version_name: "1".into(),
+                        file_name: name.into(),
+                        url: None,
+                        size: None,
+                        sha1: None,
+                        sha256: None,
+                        game_versions: vec!["1.21.1".into()],
+                        loaders: vec![LoaderKind::Vanilla],
+                        channel: ReleaseChannel::Release,
+                        dependencies: Vec::new(),
+                        published_at: None,
+                        distribution_allowed: false,
+                    },
+                    enabled: true,
+                    managed,
+                    installed_at: chrono::Utc::now(),
+                })
+                .unwrap();
+        }
+        let entries = [
+            "mods/old.jar",
+            "config/old.cfg",
+            "resourcepacks/old.zip",
+            "saves/world/level.dat",
+            "shaderpacks/old.zip",
+            "options.txt",
+        ]
+        .into_iter()
+        .map(|name| ModpackEntryResult {
+            name: name.into(),
+            status: ModpackEntryStatus::Imported,
+            detail: None,
+        })
+        .collect();
+        store
+            .save_modpack(&ModpackRecord {
+                instance_id: instance.id,
+                format: "modrinth".into(),
+                source_name: "Old Pack".into(),
+                source_sha256: "hash".into(),
+                imported_at: chrono::Utc::now(),
+                entries,
+                source: None,
+            })
+            .unwrap();
+        let record = store.modpack(instance.id).unwrap().unwrap();
+        let manager = crate::job::JobManager::new(store.clone(), 1).unwrap();
+        let job_service = service.clone();
+        let job = manager
+            .submit(
+                crate::model::JobKind::Import,
+                Some(instance.id),
+                None,
+                move |context| async move {
+                    job_service
+                        .remove_old_pack_files(instance.id, &record, &context)
+                        .await?;
+                    Ok(Value::Null)
+                },
+            )
+            .unwrap();
+        for _ in 0..100 {
+            if manager.get(job.id).unwrap().status.is_terminal() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(
+            manager.get(job.id).unwrap().status,
+            crate::model::JobStatus::Succeeded
+        );
+        for removed in [
+            "mods/old.jar",
+            "mods/old.jar.disabled",
+            "config/old.cfg",
+            "resourcepacks/old.zip",
+        ] {
+            assert!(!root.join(removed).exists(), "{removed} was not removed");
+        }
+        for preserved in [
+            "saves/world/level.dat",
+            "shaderpacks/old.zip",
+            "options.txt",
+            "config/user.cfg",
+            "mods/user.jar",
+        ] {
+            assert!(root.join(preserved).exists(), "{preserved} was removed");
+        }
+        let remaining = store.mods(instance.id).unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].file.file_name, "user.jar");
+
+        let source_job = manager
+            .submit(
+                crate::model::JobKind::Import,
+                Some(instance.id),
+                None,
+                move |context| async move {
+                    context.checkpoint(serde_json::json!({
+                        "instanceId": instance.id,
+                        "modpack": {
+                            "provider": "modrinth",
+                            "projectId": "legacy-pack",
+                            "fileId": "legacy-version",
+                            "projectIconUrl": null
+                        }
+                    }))?;
+                    Ok(serde_json::json!({"instanceId": instance.id}))
+                },
+            )
+            .unwrap();
+        for _ in 0..100 {
+            if manager.get(source_job.id).unwrap().status.is_terminal() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let source = service.get(instance.id).unwrap().unwrap().source.unwrap();
+        assert_eq!(source.project_id, "legacy-pack");
+        assert_eq!(source.file_id, "legacy-version");
     }
 
     #[test]

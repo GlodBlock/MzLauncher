@@ -332,6 +332,7 @@ mod tests {
                     game_version: "1.21.1".into(),
                     loader: LoaderKind::Vanilla,
                     loader_version: None,
+                    lwjgl_version: None,
                     install_status: InstallStatus::NotInstalled,
                     java_path: None,
                     min_memory_mb: 512,
@@ -355,6 +356,7 @@ mod tests {
             source_sha256: "hash".into(),
             imported_at: Utc::now(),
             entries: Vec::new(),
+            source: None,
         };
         store.save_modpack(&record).unwrap();
         assert_eq!(

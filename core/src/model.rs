@@ -220,6 +220,8 @@ pub struct Instance {
     pub game_version: String,
     pub loader: LoaderKind,
     pub loader_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lwjgl_version: Option<String>,
     pub install_status: InstallStatus,
     pub java_path: Option<String>,
     pub min_memory_mb: u32,
@@ -342,6 +344,15 @@ pub struct ModpackEntryResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ModpackSource {
+    pub provider: ModProvider,
+    pub project_id: String,
+    pub file_id: String,
+    pub project_icon_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ModpackRecord {
     pub instance_id: Uuid,
     pub format: String,
@@ -349,6 +360,8 @@ pub struct ModpackRecord {
     pub source_sha256: String,
     pub imported_at: DateTime<Utc>,
     pub entries: Vec<ModpackEntryResult>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<ModpackSource>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -409,5 +422,40 @@ mod tests {
         assert_eq!(progress.current_item.as_deref(), Some("first.jar"));
         assert_eq!(progress.active_items, vec!["first.jar", "second.jar"]);
         assert_eq!(progress.pending_items, vec!["next.jar", "last.jar"]);
+    }
+
+    #[test]
+    fn reads_instance_and_modpack_records_before_runtime_overrides() {
+        let instance: Instance = serde_json::from_value(serde_json::json!({
+            "id": Uuid::new_v4(),
+            "name": "Legacy",
+            "description": null,
+            "gameVersion": "1.21.1",
+            "loader": "vanilla",
+            "loaderVersion": null,
+            "installStatus": "installed",
+            "javaPath": null,
+            "minMemoryMb": 512,
+            "maxMemoryMb": 4096,
+            "jvmArgs": [],
+            "gameArgs": [],
+            "accountId": null,
+            "createdAt": "2026-01-01T00:00:00Z",
+            "updatedAt": "2026-01-01T00:00:00Z",
+            "lastLaunchedAt": null,
+            "totalPlayTimeMs": 0
+        }))
+        .unwrap();
+        assert_eq!(instance.lwjgl_version, None);
+        let record: ModpackRecord = serde_json::from_value(serde_json::json!({
+            "instanceId": instance.id,
+            "format": "modrinth",
+            "sourceName": "Legacy Pack",
+            "sourceSha256": "hash",
+            "importedAt": "2026-01-01T00:00:00Z",
+            "entries": []
+        }))
+        .unwrap();
+        assert!(record.source.is_none());
     }
 }

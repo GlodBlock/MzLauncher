@@ -1,7 +1,7 @@
 use eframe::egui;
 use serde_json::{json, Value};
 
-use crate::app::{DetailTab, InstallingModpack, MzApp, NewInstanceState, NewInstanceTab, Page};
+use crate::app::{InstallingModpack, MzApp, NewInstanceState, NewInstanceTab, Page};
 use crate::model::{Instance, Job};
 use crate::pages::home::{job_stage_key, job_status_key, loader_key, status_key};
 
@@ -44,10 +44,6 @@ impl MzApp {
     }
 
     pub fn instances_page(&mut self, ui: &mut egui::Ui) {
-        if let Some(id) = self.selected_instance.clone() {
-            self.instance_detail(ui, &id);
-            return;
-        }
         ui.allocate_ui_with_layout(
             egui::vec2(ui.available_width(), crate::layout::TOOLBAR_CONTROL_SIZE.y),
             egui::Layout::left_to_right(egui::Align::Center),
@@ -407,8 +403,7 @@ impl MzApp {
                         .show(ui, &self.tr("action.configure"))
                         .clicked()
                         {
-                            self.selected_instance = Some(instance.id.clone());
-                            self.detail_tab = DetailTab::Overview;
+                            self.open_instance_configuration(&instance.id);
                         }
                         if let Some(job_id) = &retry_job {
                             if crate::widgets::IconButton::new(
@@ -583,257 +578,6 @@ impl MzApp {
             },
         );
     }
-
-    fn instance_detail(&mut self, ui: &mut egui::Ui, id: &str) {
-        let Some(instance) = self.instance(id).cloned() else {
-            ui.label(self.tr("instances.missing"));
-            if ui.button(self.tr("action.back")).clicked() {
-                self.selected_instance = None;
-            }
-            return;
-        };
-        ui.horizontal_wrapped(|ui| {
-            if ui.button(self.tr("action.back_to_list")).clicked() {
-                self.selected_instance = None;
-                return;
-            }
-            ui.heading(&instance.name);
-            ui.label(format!(
-                "{} · {}",
-                instance.game_version,
-                self.tr(loader_key(&instance.loader))
-            ));
-            self.instance_buttons(ui, id, &instance.install_status);
-        });
-        ui.horizontal_wrapped(|ui| {
-            for (tab, key) in [
-                (DetailTab::Overview, "tab.overview"),
-                (DetailTab::Mods, "tab.mods"),
-                (DetailTab::Logs, "tab.logs"),
-                (DetailTab::Launch, "tab.launch"),
-            ] {
-                if ui
-                    .selectable_label(self.detail_tab == tab, self.tr(key))
-                    .clicked()
-                {
-                    self.detail_tab = tab;
-                    match tab {
-                        DetailTab::Mods => self.refresh_mods(id),
-                        DetailTab::Logs => {
-                            self.call(
-                                "game.logs",
-                                json!({"id": id, "tail": 500}),
-                                json!({"instanceId": id}),
-                            );
-                        }
-                        DetailTab::Launch => self.draft_instance = Some(instance.clone()),
-                        DetailTab::Overview => {}
-                    }
-                }
-            }
-        });
-        ui.separator();
-        match self.detail_tab {
-            DetailTab::Overview => self.instance_overview(ui, &instance),
-            DetailTab::Mods => self.instance_mods(ui, id),
-            DetailTab::Logs => self.instance_logs(ui, id),
-            DetailTab::Launch => self.instance_launch_settings(ui, id),
-        }
-    }
-
-    fn instance_overview(&mut self, ui: &mut egui::Ui, instance: &Instance) {
-        ui.label(self.trf(
-            "overview.status",
-            &[(
-                "status",
-                &self.tr(status_key(
-                    &instance.install_status,
-                    self.games.get(&instance.id).map(String::as_str),
-                )),
-            )],
-        ));
-        if let Some(description) = &instance.description {
-            ui.label(description);
-        }
-        if let Some(last) = &instance.last_launched_at {
-            ui.label(self.trf("overview.last_launch", &[("time", last)]));
-        }
-        ui.label(self.trf(
-            "overview.play_time",
-            &[("time", &format_play_time(instance.total_play_time_ms))],
-        ));
-        if let Some(code) = self.exit_codes.get(&instance.id) {
-            ui.label(self.trf("overview.exit_code", &[("code", &code.to_string())]));
-        }
-        ui.add_space(8.0);
-        if ui.button(self.tr("overview.preflight")).clicked() {
-            self.call(
-                "game.preflight",
-                json!({"id": instance.id}),
-                json!({"instanceId": instance.id}),
-            );
-        }
-        if let Some(result) = self.preflight.get(&instance.id).cloned() {
-            let valid = result
-                .get("valid")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            if valid {
-                ui.label(self.tr("overview.preflight_ok"));
-                if let Some(java) = result.get("java").and_then(|java| java.get("path")) {
-                    ui.small(self.trf(
-                        "overview.preflight_java",
-                        &[("path", java.as_str().unwrap_or_default())],
-                    ));
-                }
-                if let Some(warnings) = result.get("warnings").and_then(Value::as_array) {
-                    for warning in warnings {
-                        ui.label(format!("- {}", issue_text(warning)));
-                    }
-                }
-            } else {
-                ui.colored_label(
-                    egui::Color32::from_rgb(200, 60, 60),
-                    self.tr("overview.preflight_failed"),
-                );
-                if let Some(issues) = result.get("issues").and_then(Value::as_array) {
-                    for issue in issues {
-                        ui.label(format!("- {}", issue_text(issue)));
-                    }
-                }
-            }
-        }
-    }
-
-    fn instance_mods(&mut self, ui: &mut egui::Ui, id: &str) {
-        ui.horizontal_wrapped(|ui| {
-            if ui.button(self.tr("action.refresh")).clicked() {
-                self.refresh_mods(id);
-            }
-            if ui.button(self.tr("mods.check_update")).clicked() {
-                self.call(
-                    "mod.update",
-                    json!({"instanceId": id}),
-                    json!({"instanceId": id}),
-                );
-            }
-            ui.label(self.tr("mods.manual_hint"));
-        });
-        ui.separator();
-        let mods = self.mods.get(id).cloned().unwrap_or_default();
-        if mods.is_empty() {
-            ui.label(self.tr("mods.empty"));
-        }
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for installed in mods {
-                ui.horizontal_wrapped(|ui| {
-                    let mut enabled = installed.enabled;
-                    if ui.checkbox(&mut enabled, "").changed() {
-                        self.call(
-                            "mod.set_enabled",
-                            json!({"id": installed.id, "enabled": enabled}),
-                            json!({"instanceId": id}),
-                        );
-                    }
-                    ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(&installed.file.project_name).strong(),
-                        )
-                        .wrap(),
-                    );
-                    ui.add(egui::Label::new(&installed.file.version_name).wrap());
-                    ui.label(if installed.managed {
-                        installed.file.provider.clone()
-                    } else {
-                        self.tr("mods.untracked")
-                    });
-                    if ui.small_button(self.tr("action.remove")).clicked() {
-                        self.call(
-                            "mod.remove",
-                            json!({"id": installed.id}),
-                            json!({"instanceId": id}),
-                        );
-                    }
-                });
-            }
-        });
-    }
-
-    fn instance_logs(&mut self, ui: &mut egui::Ui, id: &str) {
-        if ui.button(self.tr("logs.reload")).clicked() {
-            self.call(
-                "game.logs",
-                json!({"id": id, "tail": 500}),
-                json!({"instanceId": id}),
-            );
-        }
-        ui.separator();
-        let logs = self.logs.get(id).cloned().unwrap_or_default();
-        if logs.is_empty() {
-            ui.label(self.tr("logs.empty"));
-        }
-        egui::ScrollArea::vertical()
-            .stick_to_bottom(true)
-            .show(ui, |ui| {
-                for line in logs {
-                    ui.add(egui::Label::new(egui::RichText::new(line).monospace().small()).wrap());
-                }
-            });
-    }
-
-    fn instance_launch_settings(&mut self, ui: &mut egui::Ui, id: &str) {
-        let Some(mut draft) = self.draft_instance.clone() else {
-            return;
-        };
-        if draft.id != id {
-            return;
-        }
-        egui::Grid::new("instance_launch_settings")
-            .num_columns(2)
-            .show(ui, |ui| {
-                ui.label(self.tr("launch.java_path"));
-                let mut java = draft.java_path.clone().unwrap_or_default();
-                if ui
-                    .add(egui::TextEdit::singleline(&mut java).desired_width(ui.available_width()))
-                    .changed()
-                {
-                    draft.java_path = if java.trim().is_empty() {
-                        None
-                    } else {
-                        Some(java.trim().to_owned())
-                    };
-                }
-                ui.end_row();
-
-                ui.label(self.tr("launch.min_memory"));
-                ui.add(egui::DragValue::new(&mut draft.min_memory_mb).range(256..=65536));
-                ui.end_row();
-
-                ui.label(self.tr("launch.max_memory"));
-                ui.add(egui::DragValue::new(&mut draft.max_memory_mb).range(256..=65536));
-                ui.end_row();
-
-                ui.label(self.tr("launch.jvm_args"));
-                let mut args = draft.jvm_args.join(" ");
-                if ui
-                    .add(egui::TextEdit::singleline(&mut args).desired_width(ui.available_width()))
-                    .changed()
-                {
-                    draft.jvm_args = args.split_whitespace().map(str::to_owned).collect();
-                }
-                ui.end_row();
-            });
-        if ui.button(self.tr("launch.save")).clicked() {
-            match serde_json::to_value(&draft) {
-                Ok(value) => self.call("instance.update", value, Value::Null),
-                Err(error) => {
-                    self.notice =
-                        Some(self.trf("launch.save_error", &[("error", &error.to_string())]))
-                }
-            }
-        }
-        self.draft_instance = Some(draft);
-    }
 }
 
 fn new_instance_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
@@ -992,14 +736,6 @@ fn instance_colors(name: &str) -> (egui::Color32, egui::Color32) {
         egui::Color32::from_rgb(grass.0, grass.1, grass.2),
         egui::Color32::from_rgb(dirt.0, dirt.1, dirt.2),
     )
-}
-
-fn issue_text(issue: &Value) -> String {
-    issue
-        .get("message")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .unwrap_or_else(|| issue.to_string())
 }
 
 #[cfg(test)]

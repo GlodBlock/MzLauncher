@@ -599,7 +599,7 @@ impl MzApp {
         }
         self.create = None;
         self.page = crate::app::Page::Instances;
-        self.selected_instance = None;
+        self.close_instance_configuration();
     }
 
     pub(crate) fn retry_modpack_install(&mut self, job_id: &str) {

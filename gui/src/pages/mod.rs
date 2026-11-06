@@ -1,5 +1,6 @@
 pub mod accounts;
 pub mod home;
+pub mod instance_configuration;
 pub mod instances;
 pub mod jobs;
 pub mod modpack;

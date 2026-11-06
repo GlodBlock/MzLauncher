@@ -26,11 +26,10 @@ pub enum Page {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum DetailTab {
-    Overview,
-    Mods,
-    Logs,
+pub enum ConfigurationTab {
     Launch,
+    Runtime,
+    Modpack,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -61,6 +60,16 @@ pub struct NewInstanceState {
     pub include_snapshots: bool,
     pub tab: NewInstanceTab,
     pub creating: bool,
+}
+
+#[derive(Default)]
+pub struct InstanceModpackConfiguration {
+    pub record: Option<ModpackRecord>,
+    pub loaded: bool,
+    pub versions: Vec<ModFile>,
+    pub selected_version: Option<String>,
+    pub loading: bool,
+    pub confirm_update: Option<String>,
 }
 
 pub struct ModBrowser {
@@ -215,7 +224,7 @@ pub struct MzApp {
     pub notice: Option<String>,
     pub handshake: Option<HandshakeInfo>,
     pub page: Page,
-    pub detail_tab: DetailTab,
+    pub configuration_tab: ConfigurationTab,
     pub accounts: Vec<Account>,
     pub instances: Vec<Instance>,
     pub jobs: Vec<Job>,
@@ -232,6 +241,8 @@ pub struct MzApp {
     pub modpack_version_selection: Option<ModpackVersionSelection>,
     pub versions: Vec<VersionSummary>,
     pub loader_versions: Vec<LoaderVersion>,
+    pub instance_versions: Vec<VersionSummary>,
+    pub instance_loader_versions: Vec<LoaderVersion>,
     pub login: Option<LoginSession>,
     pub logs: HashMap<String, Vec<String>>,
     pub mods: HashMap<String, Vec<InstalledMod>>,
@@ -246,6 +257,7 @@ pub struct MzApp {
     pub modpack_browser: ModpackBrowser,
     pub modpack: ModpackWizard,
     pub draft_instance: Option<Instance>,
+    pub instance_modpack: InstanceModpackConfiguration,
 }
 
 impl MzApp {
@@ -266,7 +278,7 @@ impl MzApp {
             notice: None,
             handshake: None,
             page: Page::Instances,
-            detail_tab: DetailTab::Overview,
+            configuration_tab: ConfigurationTab::Launch,
             accounts: Vec::new(),
             instances: Vec::new(),
             jobs: Vec::new(),
@@ -283,6 +295,8 @@ impl MzApp {
             modpack_version_selection: None,
             versions: Vec::new(),
             loader_versions: Vec::new(),
+            instance_versions: Vec::new(),
+            instance_loader_versions: Vec::new(),
             login: None,
             logs: HashMap::new(),
             mods: HashMap::new(),
@@ -311,6 +325,7 @@ impl MzApp {
                 importing: false,
             },
             draft_instance: None,
+            instance_modpack: InstanceModpackConfiguration::default(),
         };
         app.connect();
         app
@@ -512,12 +527,31 @@ impl MzApp {
                 }
             }
             "modpack.versions" => {
-                if let Some(selection) = &mut self.modpack_version_selection {
+                if pending
+                    .context
+                    .get("configuration")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    if pending.context.get("instanceId").and_then(Value::as_str)
+                        == self.selected_instance.as_deref()
+                    {
+                        self.instance_modpack.loading = false;
+                    }
+                } else if let Some(selection) = &mut self.modpack_version_selection {
                     if pending.context.get("projectId").and_then(Value::as_str)
                         == Some(selection.project.project_id.as_str())
                     {
                         selection.loading = false;
                     }
+                }
+            }
+            "modpack.get" => {
+                if pending.context.get("instanceId").and_then(Value::as_str)
+                    == self.selected_instance.as_deref()
+                {
+                    self.instance_modpack.loaded = true;
+                    self.instance_modpack.record = None;
                 }
             }
             "modpack.changelog" => {
@@ -600,15 +634,38 @@ impl MzApp {
                         }
                         if job.kind == "import" {
                             self.modpack.importing = false;
+                            let updating = job
+                                .checkpoint
+                                .as_ref()
+                                .and_then(|checkpoint| checkpoint.get("update"))
+                                .and_then(Value::as_bool)
+                                .unwrap_or(false);
                             if job.status == "succeeded" {
-                                self.selected_instance = job
+                                let completed_instance = job
                                     .result
                                     .as_ref()
                                     .and_then(|result| result.get("instanceId"))
                                     .and_then(Value::as_str)
                                     .map(str::to_owned);
-                                self.modpack.analysis = None;
-                                self.create = None;
+                                if self.selected_instance == completed_instance {
+                                    if let Some(id) = completed_instance {
+                                        self.call(
+                                            "modpack.get",
+                                            json!({"id": id}),
+                                            json!({"instanceId": id}),
+                                        );
+                                        self.call(
+                                            "instance.get",
+                                            json!({"id": id}),
+                                            json!({"configurationId": id}),
+                                        );
+                                        self.refresh_mods(&id);
+                                    }
+                                }
+                                if !updating {
+                                    self.modpack.analysis = None;
+                                    self.create = None;
+                                }
                             } else if job.status == "failed" {
                                 let message = job
                                     .error
@@ -731,44 +788,86 @@ impl MzApp {
                 }
             }
             "version.list" => {
+                let configuration = pending
+                    .context
+                    .get("configurationId")
+                    .and_then(Value::as_str);
                 let current = self.create.as_ref().map(|create| create.include_snapshots);
                 let requested = pending
                     .context
                     .get("includeSnapshots")
                     .and_then(Value::as_bool);
-                if requested.is_none() || requested == current {
-                    self.versions = parse_list(result);
-                    if let Some(create) = &mut self.create {
-                        if create.game_version.is_empty() {
-                            create.game_version = self
-                                .versions
-                                .iter()
-                                .find(|version| version.release_type == "release")
-                                .or_else(|| self.versions.first())
-                                .map(|version| version.id.clone())
-                                .unwrap_or_default();
+                let matches = if let Some(id) = configuration {
+                    self.selected_instance.as_deref() == Some(id)
+                } else {
+                    requested.is_none() || requested == current
+                };
+                if matches {
+                    if configuration.is_some() {
+                        self.instance_versions = parse_list(result);
+                    } else {
+                        self.versions = parse_list(result);
+                        if let Some(create) = &mut self.create {
+                            if create.game_version.is_empty() {
+                                create.game_version = self
+                                    .versions
+                                    .iter()
+                                    .find(|version| version.release_type == "release")
+                                    .or_else(|| self.versions.first())
+                                    .map(|version| version.id.clone())
+                                    .unwrap_or_default();
+                            }
                         }
                     }
                 }
             }
             "loader.list" => {
-                let matches = self.create.as_ref().is_none_or(|create| {
-                    pending.context.get("gameVersion").and_then(Value::as_str)
-                        == Some(create.game_version.as_str())
-                        && pending.context.get("loader").and_then(Value::as_str)
-                            == Some(create.loader.as_str())
-                });
+                let configuration = pending
+                    .context
+                    .get("configurationId")
+                    .and_then(Value::as_str);
+                let matches = if let Some(id) = configuration {
+                    self.selected_instance.as_deref() == Some(id)
+                        && self.draft_instance.as_ref().is_some_and(|draft| {
+                            pending.context.get("gameVersion").and_then(Value::as_str)
+                                == Some(draft.game_version.as_str())
+                                && pending.context.get("loader").and_then(Value::as_str)
+                                    == Some(draft.loader.as_str())
+                        })
+                } else {
+                    self.create.as_ref().is_some_and(|create| {
+                        pending.context.get("gameVersion").and_then(Value::as_str)
+                            == Some(create.game_version.as_str())
+                            && pending.context.get("loader").and_then(Value::as_str)
+                                == Some(create.loader.as_str())
+                    })
+                };
                 if matches {
-                    self.loader_versions = parse_list(result);
-                    if let Some(create) = &mut self.create {
-                        if create.loader != "vanilla" && create.loader_version.is_empty() {
-                            create.loader_version = self
-                                .loader_versions
-                                .iter()
-                                .find(|version| version.stable)
-                                .or_else(|| self.loader_versions.first())
-                                .map(|version| version.version.clone())
-                                .unwrap_or_default();
+                    if configuration.is_some() {
+                        self.instance_loader_versions = parse_list(result);
+                        let default_version = self
+                            .instance_loader_versions
+                            .iter()
+                            .find(|version| version.stable)
+                            .or_else(|| self.instance_loader_versions.first())
+                            .map(|version| version.version.clone());
+                        if let Some(draft) = &mut self.draft_instance {
+                            if draft.loader != "vanilla" && draft.loader_version.is_none() {
+                                draft.loader_version = default_version;
+                            }
+                        }
+                    } else {
+                        self.loader_versions = parse_list(result);
+                        let default_version = self
+                            .loader_versions
+                            .iter()
+                            .find(|version| version.stable)
+                            .or_else(|| self.loader_versions.first())
+                            .map(|version| version.version.clone());
+                        if let Some(create) = &mut self.create {
+                            if create.loader != "vanilla" && create.loader_version.is_empty() {
+                                create.loader_version = default_version.unwrap_or_default();
+                            }
                         }
                     }
                 }
@@ -784,14 +883,15 @@ impl MzApp {
                         .unwrap_or(false);
                     self.create = None;
                     if install {
-                        self.selected_instance = None;
+                        self.close_instance_configuration();
                         self.call(
                             "instance.install",
                             json!({"id": instance.id}),
                             json!({"instanceId": instance.id}),
                         );
                     } else {
-                        self.selected_instance = Some(instance.id);
+                        self.instances.push(instance.clone());
+                        self.open_instance_configuration(&instance.id);
                     }
                     self.refresh_instances();
                 }
@@ -801,18 +901,34 @@ impl MzApp {
                     }
                 }
             },
+            "instance.get" => {
+                if let Ok(instance) = serde_json::from_value::<Instance>(result) {
+                    if self.selected_instance.as_deref() == Some(instance.id.as_str()) {
+                        self.draft_instance = Some(instance);
+                    }
+                }
+            }
             "instance.install" | "instance.repair" | "mod.install" | "mod.update"
-            | "modpack.import" => {
+            | "modpack.import" | "modpack.update" => {
                 if let Ok(job) = serde_json::from_value::<Job>(result) {
                     self.merge_job(job);
                 }
             }
             "instance.delete" => {
                 self.notice = Some(self.tr("notice.instance_deleted"));
-                self.selected_instance = None;
+                self.close_instance_configuration();
                 self.refresh_instances();
             }
-            "instance.copy" | "instance.rename" | "instance.update" => {
+            "instance.update" => {
+                if let Ok(instance) = serde_json::from_value::<Instance>(result) {
+                    if self.selected_instance.as_deref() == Some(instance.id.as_str()) {
+                        self.draft_instance = Some(instance);
+                    }
+                }
+                self.refresh_instances();
+                self.notice = Some(self.tr("notice.saved"));
+            }
+            "instance.copy" | "instance.rename" => {
                 self.refresh_instances();
                 self.notice = Some(self.tr("notice.saved"));
             }
@@ -887,28 +1003,62 @@ impl MzApp {
                     self.refresh_mods(id);
                 }
             }
-            "modpack.versions" => {
-                let mut changelog_request = None;
-                if let Some(selection) = &mut self.modpack_version_selection {
-                    let matches = pending.context.get("projectId").and_then(Value::as_str)
-                        == Some(selection.project.project_id.as_str())
-                        && pending.context.get("provider").and_then(Value::as_str)
-                            == Some(selection.project.provider.as_str());
-                    if matches {
-                        selection.versions = parse_list(result);
-                        selection.selected = selection
-                            .versions
-                            .first()
-                            .map(|version| version.file_id.clone());
-                        selection.loading = false;
-                        changelog_request = selection
-                            .selected
-                            .clone()
-                            .map(|file_id| (selection.project.clone(), file_id));
-                    }
+            "modpack.get" => {
+                if pending.context.get("instanceId").and_then(Value::as_str)
+                    == self.selected_instance.as_deref()
+                {
+                    self.instance_modpack.record = serde_json::from_value(result).ok();
+                    self.instance_modpack.versions.clear();
+                    self.instance_modpack.selected_version = None;
+                    self.instance_modpack.loaded = true;
                 }
-                if let Some((project, file_id)) = changelog_request {
-                    self.request_modpack_changelog(project, file_id);
+            }
+            "modpack.versions" => {
+                let configuration = pending
+                    .context
+                    .get("configuration")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                if configuration {
+                    if pending.context.get("instanceId").and_then(Value::as_str)
+                        == self.selected_instance.as_deref()
+                    {
+                        let current = self
+                            .instance_modpack
+                            .record
+                            .as_ref()
+                            .and_then(|record| record.source.as_ref())
+                            .map(|source| source.file_id.as_str());
+                        let mut versions: Vec<ModFile> = parse_list(result);
+                        versions.retain(|version| Some(version.file_id.as_str()) != current);
+                        self.instance_modpack.selected_version =
+                            versions.first().map(|version| version.file_id.clone());
+                        self.instance_modpack.versions = versions;
+                        self.instance_modpack.loading = false;
+                    }
+                } else {
+                    let mut changelog_request = None;
+                    if let Some(selection) = &mut self.modpack_version_selection {
+                        let matches = pending.context.get("projectId").and_then(Value::as_str)
+                            == Some(selection.project.project_id.as_str())
+                            && pending.context.get("provider").and_then(Value::as_str)
+                                == Some(selection.project.provider.as_str());
+                        if matches {
+                            selection.versions = parse_list(result);
+                            selection.selected = selection
+                                .versions
+                                .first()
+                                .map(|version| version.file_id.clone());
+                            selection.loading = false;
+                            changelog_request = selection
+                                .selected
+                                .clone()
+                                .map(|file_id| (selection.project.clone(), file_id));
+                        }
+                    }
+                    if let Some((project, file_id)) = changelog_request {
+                        self.request_modpack_changelog(project, file_id);
+                    }
                 }
             }
             "modpack.changelog" => {
@@ -1173,6 +1323,7 @@ impl eframe::App for MzApp {
             }
         });
         self.new_instance_window(ctx);
+        self.instance_configuration_window(ctx);
         self.modpack_version_window(ctx);
         self.install_details_window(ctx);
     }

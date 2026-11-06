@@ -8,6 +8,10 @@ pub const SECTION_GAP: f32 = 12.0;
 pub const TOOLBAR_CONTROL_SIZE: egui::Vec2 = egui::Vec2::splat(42.0);
 pub const CONTENT_TRAILING_RESERVE: f32 = 16.0;
 
+pub fn button_height(ui: &egui::Ui) -> f32 {
+    ui.text_style_height(&egui::TextStyle::Button) + ui.spacing().button_padding.y * 2.0
+}
+
 pub fn button_width(ui: &egui::Ui, text: impl Into<String>) -> f32 {
     let font_id = egui::TextStyle::Button.resolve(ui.style());
     let text_width = ui.fonts(|fonts| {

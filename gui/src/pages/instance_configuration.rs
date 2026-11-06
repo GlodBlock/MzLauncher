@@ -141,12 +141,16 @@ impl MzApp {
             egui::Grid::new("instance_launch_configuration")
                 .num_columns(2)
                 .show(ui, |ui| {
+                    let control_height = crate::layout::button_height(ui);
+                    ui.spacing_mut().interact_size.y = control_height;
                     ui.label(self.tr("launch.java_path"));
                     let mut java = draft.java_path.clone().unwrap_or_default();
                     if ui
                         .add(
                             egui::TextEdit::singleline(&mut java)
-                                .desired_width(ui.available_width()),
+                                .desired_width(ui.available_width())
+                                .min_size(egui::vec2(ui.available_width(), control_height))
+                                .vertical_align(egui::Align::Center),
                         )
                         .changed()
                     {
@@ -167,7 +171,9 @@ impl MzApp {
                     if ui
                         .add(
                             egui::TextEdit::singleline(&mut args)
-                                .desired_width(ui.available_width()),
+                                .desired_width(ui.available_width())
+                                .min_size(egui::vec2(ui.available_width(), control_height))
+                                .vertical_align(egui::Align::Center),
                         )
                         .changed()
                     {
@@ -198,13 +204,17 @@ impl MzApp {
             egui::Grid::new("instance_runtime_configuration")
                 .num_columns(2)
                 .show(ui, |ui| {
+                    let control_height = crate::layout::button_height(ui);
+                    ui.spacing_mut().interact_size.y = control_height;
                     ui.label(self.tr("configuration.lwjgl_version"));
                     let mut lwjgl = draft.lwjgl_version.clone().unwrap_or_default();
                     if ui
                         .add(
                             egui::TextEdit::singleline(&mut lwjgl)
                                 .hint_text(self.tr("configuration.lwjgl_hint"))
-                                .desired_width(ui.available_width()),
+                                .desired_width(ui.available_width())
+                                .min_size(egui::vec2(ui.available_width(), control_height))
+                                .vertical_align(egui::Align::Center),
                         )
                         .changed()
                     {

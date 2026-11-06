@@ -108,7 +108,7 @@ impl MzApp {
                 ui.add_space(crate::layout::CARD_LIST_GAP);
             }
         });
-        self.delete_dialog(ui.ctx());
+        self.delete_dialog();
     }
 
     fn installation_has_instance(&self, install: &InstallingModpack) -> bool {
@@ -463,37 +463,28 @@ impl MzApp {
         });
     }
 
-    fn delete_dialog(&mut self, ctx: &egui::Context) {
-        let Some(confirmation) = self.confirm_delete.clone() else {
+    fn delete_dialog(&mut self) {
+        let Some(confirmation) = self.confirm_delete.take() else {
             return;
         };
-        let mut confirm = false;
-        let mut cancel = false;
-        egui::Window::new(self.tr("delete.title"))
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .collapsible(false)
-            .resizable(false)
-            .show(ctx, |ui| {
-                ui.label(self.trf("delete.confirm", &[("name", &confirmation.name)]));
-                ui.label(self.tr("delete.warning"));
-                ui.horizontal(|ui| {
-                    if ui.button(self.tr("action.cancel")).clicked() {
-                        cancel = true;
-                    }
-                    if ui.button(self.tr("action.confirm_delete")).clicked() {
-                        confirm = true;
-                    }
-                });
-            });
-        if confirm {
-            if let Some(id) = confirmation.instance_id {
-                self.call("instance.delete", json!({"id": id}), Value::Null);
-            } else if let Some(id) = confirmation.job_id {
-                self.call("job.cancel", json!({"id": id}), Value::Null);
-            }
+        let description = format!(
+            "{}\n{}",
+            self.trf("delete.confirm", &[("name", &confirmation.name)]),
+            self.tr("delete.warning")
+        );
+        let result = rfd::MessageDialog::new()
+            .set_title(self.tr("delete.title"))
+            .set_description(description)
+            .set_level(rfd::MessageLevel::Warning)
+            .set_buttons(rfd::MessageButtons::OkCancel)
+            .show();
+        if result != rfd::MessageDialogResult::Ok {
+            return;
         }
-        if confirm || cancel {
-            self.confirm_delete = None;
+        if let Some(id) = confirmation.instance_id {
+            self.call("instance.delete", json!({"id": id}), Value::Null);
+        } else if let Some(id) = confirmation.job_id {
+            self.call("job.cancel", json!({"id": id}), Value::Null);
         }
     }
 

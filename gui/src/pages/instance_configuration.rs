@@ -148,9 +148,11 @@ impl MzApp {
                     let browse_label = self.tr("modpack.browse");
                     ui.horizontal(|ui| {
                         let browse_width = crate::layout::button_width(ui, &browse_label);
-                        let java_width =
-                            (ui.available_width() - browse_width - ui.spacing().item_spacing.x)
-                                .max(0.0);
+                        let java_width = (ui.available_width()
+                            - browse_width
+                            - ui.spacing().item_spacing.x
+                            - crate::layout::CONTENT_TRAILING_RESERVE)
+                            .max(0.0);
                         if ui
                             .add(
                                 egui::TextEdit::singleline(&mut java)

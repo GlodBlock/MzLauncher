@@ -1153,7 +1153,7 @@ impl MzApp {
                             .and_then(|record| record.source.as_ref())
                             .map(|source| source.file_id.as_str());
                         let (current_version, versions) =
-                            split_modpack_versions(parse_list(result), current);
+                            resolve_modpack_versions(parse_list(result), current);
                         self.instance_modpack.current_version = current_version;
                         self.instance_modpack.selected_version = versions
                             .first()
@@ -1472,15 +1472,14 @@ fn take_launch_after_install(
     (requested && job.status == "succeeded").then_some(id)
 }
 
-fn split_modpack_versions(
-    mut versions: Vec<ModFile>,
+fn resolve_modpack_versions(
+    versions: Vec<ModFile>,
     current: Option<&str>,
 ) -> (Option<String>, Vec<ModFile>) {
     let current_version = versions
         .iter()
         .find(|version| Some(version.file_id.as_str()) == current)
         .map(|version| version.version_name.clone());
-    versions.retain(|version| Some(version.file_id.as_str()) != current);
     (current_version, versions)
 }
 
@@ -1497,7 +1496,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn current_modpack_version_is_resolved_before_filtering_updates() {
+    fn current_modpack_version_preserves_provider_order() {
         let file = |id: &str, version: &str| {
             serde_json::from_value::<ModFile>(json!({
                 "provider": "modrinth",
@@ -1520,11 +1519,12 @@ mod tests {
             .unwrap()
         };
         let versions = vec![file("current-id", "1.2.3"), file("next-id", "1.3.0")];
-        let (current, updates) = split_modpack_versions(versions, Some("current-id"));
+        let (current, versions) = resolve_modpack_versions(versions, Some("current-id"));
 
         assert_eq!(current.as_deref(), Some("1.2.3"));
-        assert_eq!(updates.len(), 1);
-        assert_eq!(updates[0].file_id, "next-id");
+        assert_eq!(versions.len(), 2);
+        assert_eq!(versions[0].file_id, "current-id");
+        assert_eq!(versions[1].file_id, "next-id");
     }
 
     #[test]

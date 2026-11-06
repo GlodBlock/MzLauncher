@@ -521,15 +521,9 @@ impl MzApp {
                     .selected_text(selected)
                     .width(ui.available_width())
                     .show_ui(ui, |ui| {
-                        let current_label =
-                            format!("{} · {}", current, self.tr("configuration.current_version"));
-                        ui.selectable_value(
-                            &mut self.instance_modpack.selected_version,
-                            Some(source.file_id.clone()),
-                            egui::RichText::new(current_label).strong(),
-                        );
                         for version in &self.instance_modpack.versions {
-                            let label = if version.game_versions.is_empty() {
+                            let is_current = version.file_id == source.file_id;
+                            let mut label = if version.game_versions.is_empty() {
                                 version.version_name.clone()
                             } else {
                                 format!(
@@ -538,10 +532,35 @@ impl MzApp {
                                     version.game_versions.join(", ")
                                 )
                             };
+                            if is_current {
+                                label = format!(
+                                    "{} · {}",
+                                    label,
+                                    self.tr("configuration.current_version")
+                                );
+                            }
+                            let label = egui::RichText::new(label);
                             ui.selectable_value(
                                 &mut self.instance_modpack.selected_version,
                                 Some(version.file_id.clone()),
-                                label,
+                                if is_current { label.strong() } else { label },
+                            );
+                        }
+                        let has_current = self
+                            .instance_modpack
+                            .versions
+                            .iter()
+                            .any(|version| version.file_id == source.file_id);
+                        if !has_current {
+                            let current_label = format!(
+                                "{} · {}",
+                                current,
+                                self.tr("configuration.current_version")
+                            );
+                            ui.selectable_value(
+                                &mut self.instance_modpack.selected_version,
+                                Some(source.file_id.clone()),
+                                egui::RichText::new(current_label).strong(),
                             );
                         }
                     });

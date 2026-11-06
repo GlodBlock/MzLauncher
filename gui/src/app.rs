@@ -229,6 +229,7 @@ pub struct MzApp {
     pub instances: Vec<Instance>,
     pub jobs: Vec<Job>,
     pub installing_modpacks: Vec<InstallingModpack>,
+    pub launch_after_install: std::collections::HashSet<String>,
     pub games: HashMap<String, String>,
     pub exit_codes: HashMap<String, i32>,
     pub settings: Option<AppSettings>,
@@ -283,6 +284,7 @@ impl MzApp {
             instances: Vec::new(),
             jobs: Vec::new(),
             installing_modpacks: Vec::new(),
+            launch_after_install: std::collections::HashSet::new(),
             games: HashMap::new(),
             exit_codes: HashMap::new(),
             settings: None,
@@ -582,6 +584,18 @@ impl MzApp {
                     create.creating = false;
                 }
             }
+            "instance.install" => {
+                if pending
+                    .context
+                    .get("launchAfterInstall")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    if let Some(id) = pending.context.get("instanceId").and_then(Value::as_str) {
+                        self.launch_after_install.remove(id);
+                    }
+                }
+            }
             "account.skin" => {
                 if let Some(id) = pending.context.get("id").and_then(Value::as_str) {
                     self.skins.fail(id);
@@ -678,6 +692,11 @@ impl MzApp {
                         }
                         if matches!(job.kind.as_str(), "import" | "install") {
                             self.refresh_instances();
+                        }
+                        if let Some(id) =
+                            take_launch_after_install(&mut self.launch_after_install, &job)
+                        {
+                            self.call("game.launch", json!({"id": id}), json!({"instanceId": id}));
                         }
                     } else if job.kind == "import"
                         && instance_id.is_some()
@@ -851,9 +870,16 @@ impl MzApp {
                             .find(|version| version.stable)
                             .or_else(|| self.instance_loader_versions.first())
                             .map(|version| version.version.clone());
+                        let mut save_runtime = false;
                         if let Some(draft) = &mut self.draft_instance {
                             if draft.loader != "vanilla" && draft.loader_version.is_none() {
                                 draft.loader_version = default_version;
+                                save_runtime = draft.loader_version.is_some();
+                            }
+                        }
+                        if save_runtime {
+                            if let Some(draft) = self.draft_instance.clone() {
+                                self.save_instance_configuration(draft);
                             }
                         }
                     } else {
@@ -919,23 +945,7 @@ impl MzApp {
                 self.close_instance_configuration();
                 self.refresh_instances();
             }
-            "instance.update" => {
-                let auto_save = pending
-                    .context
-                    .get("autoSave")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
-                if let Ok(instance) = serde_json::from_value::<Instance>(result) {
-                    if !auto_save && self.selected_instance.as_deref() == Some(instance.id.as_str())
-                    {
-                        self.draft_instance = Some(instance);
-                    }
-                }
-                self.refresh_instances();
-                if !auto_save {
-                    self.notice = Some(self.tr("notice.saved"));
-                }
-            }
+            "instance.update" => self.refresh_instances(),
             "instance.copy" | "instance.rename" => {
                 self.refresh_instances();
                 self.notice = Some(self.tr("notice.saved"));
@@ -1337,6 +1347,23 @@ impl eframe::App for MzApp {
     }
 }
 
+fn take_launch_after_install(
+    launches: &mut std::collections::HashSet<String>,
+    job: &Job,
+) -> Option<String> {
+    if job.kind != "install"
+        || !matches!(
+            job.status.as_str(),
+            "succeeded" | "failed" | "cancelled" | "interrupted"
+        )
+    {
+        return None;
+    }
+    let id = job.instance_id()?.to_owned();
+    let requested = launches.remove(&id);
+    (requested && job.status == "succeeded").then_some(id)
+}
+
 pub fn modpack_icon_key(project: &ModProject) -> String {
     format!("{}:{}", project.provider, project.project_id)
 }
@@ -1344,6 +1371,37 @@ pub fn modpack_icon_key(project: &ModProject) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn launches_only_after_a_requested_successful_install() {
+        let mut launches = std::collections::HashSet::from(["instance-1".to_owned()]);
+        let mut job: Job = serde_json::from_value(json!({
+            "id": "job-1",
+            "kind": "install",
+            "status": "running",
+            "target": "instance-1",
+            "progress": {"stage": "installing", "completed": 0, "total": null},
+            "error": null,
+            "result": null,
+            "checkpoint": null
+        }))
+        .unwrap();
+        assert_eq!(take_launch_after_install(&mut launches, &job), None);
+        assert!(launches.contains("instance-1"));
+
+        job.status = "failed".into();
+        assert_eq!(take_launch_after_install(&mut launches, &job), None);
+        assert!(launches.is_empty());
+
+        launches.insert("instance-1".into());
+        job.status = "succeeded".into();
+        assert_eq!(
+            take_launch_after_install(&mut launches, &job).as_deref(),
+            Some("instance-1")
+        );
+        assert!(launches.is_empty());
+        assert_eq!(take_launch_after_install(&mut launches, &job), None);
+    }
 
     #[test]
     fn restores_interrupted_remote_modpack_from_checkpoint() {

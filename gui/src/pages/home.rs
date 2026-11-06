@@ -92,15 +92,29 @@ impl MzApp {
             if ui.button(self.tr("action.stop")).clicked() {
                 self.call("game.stop", json!({"id": id}), json!({"instanceId": id}));
             }
-        } else if install_status == "installed" {
-            if ui.button(self.tr("action.launch")).clicked() {
-                self.call("game.launch", json!({"id": id}), json!({"instanceId": id}));
+        } else if ui
+            .button(self.tr(if install_status == "installed" {
+                "action.launch"
+            } else {
+                "action.prepare_install"
+            }))
+            .clicked()
+        {
+            self.launch_instance(id, install_status == "installed");
+        }
+    }
+
+    pub fn launch_instance(&mut self, id: &str, installed: bool) {
+        if installed {
+            self.call("game.launch", json!({"id": id}), json!({"instanceId": id}));
+        } else {
+            if !self.launch_after_install.insert(id.to_owned()) {
+                return;
             }
-        } else if ui.button(self.tr("action.install")).clicked() {
             self.call(
                 "instance.install",
                 json!({"id": id}),
-                json!({"instanceId": id}),
+                json!({"instanceId": id, "launchAfterInstall": true}),
             );
         }
     }

@@ -456,6 +456,19 @@ mod tests {
     }
 
     #[test]
+    fn runtime_update_requires_reinstallation() {
+        let (_temp, service, _config) = service();
+        let mut instance = service.create(params("runtime")).unwrap();
+        instance.install_status = InstallStatus::Installed;
+        service.store.save_instance(&instance).unwrap();
+
+        instance.game_version = "1.21.4".into();
+        let updated = service.update_settings(instance).unwrap();
+
+        assert_eq!(updated.install_status, InstallStatus::NotInstalled);
+    }
+
+    #[test]
     fn rejects_invalid_memory_and_arguments() {
         let (_temp, service, _config) = service();
         let mut params = params("invalid");

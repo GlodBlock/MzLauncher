@@ -417,12 +417,12 @@ impl MzApp {
                                 self.retry_modpack_install(job_id);
                             }
                         }
-                        let (primary_tooltip, primary_method) = if running {
-                            ("action.stop_game", "game.stop")
+                        let primary_tooltip = if running {
+                            "action.stop_game"
                         } else if installed {
-                            ("action.launch_game", "game.launch")
+                            "action.launch_game"
                         } else {
-                            ("action.prepare_install", "instance.install")
+                            "action.prepare_install"
                         };
                         let primary = if running {
                             crate::widgets::IconButton::new(
@@ -447,11 +447,15 @@ impl MzApp {
                             .show(ui, &self.tr(primary_tooltip))
                         };
                         if primary.clicked() {
-                            self.call(
-                                primary_method,
-                                json!({"id": instance.id}),
-                                json!({"instanceId": instance.id}),
-                            );
+                            if running {
+                                self.call(
+                                    "game.stop",
+                                    json!({"id": instance.id}),
+                                    json!({"instanceId": instance.id}),
+                                );
+                            } else {
+                                self.launch_instance(&instance.id, installed);
+                            }
                         }
                     });
                 },

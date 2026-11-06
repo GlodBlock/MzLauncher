@@ -188,7 +188,7 @@ impl MzApp {
             || draft.max_memory_mb != original.max_memory_mb
             || draft.jvm_args != original.jvm_args
         {
-            self.save_instance_configuration(draft, true);
+            self.save_instance_configuration(draft);
         }
     }
 
@@ -196,8 +196,7 @@ impl MzApp {
         let Some(mut draft) = self.draft_instance.clone() else {
             return;
         };
-        let original_game = draft.game_version.clone();
-        let original_loader = draft.loader.clone();
+        let original = draft.clone();
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.label(self.tr("configuration.runtime_hint"));
             ui.add_space(crate::layout::SECTION_GAP);
@@ -281,36 +280,34 @@ impl MzApp {
                     }
                     ui.end_row();
                 });
-            ui.add_space(crate::layout::SECTION_GAP);
-            let can_save = draft.loader == "vanilla" || draft.loader_version.is_some();
-            if ui
-                .add_enabled(
-                    can_save,
-                    egui::Button::new(self.tr("configuration.save_runtime")),
-                )
-                .clicked()
-            {
-                self.save_instance_configuration(draft.clone(), false);
-            }
         });
+        let runtime_changed = draft.game_version != original.game_version
+            || draft.loader != original.loader
+            || draft.loader_version != original.loader_version
+            || draft.lwjgl_version != original.lwjgl_version;
+        let selection_changed =
+            draft.game_version != original.game_version || draft.loader != original.loader;
         self.draft_instance = Some(draft);
-        if self.draft_instance.as_ref().is_some_and(|current| {
-            current.game_version != original_game || current.loader != original_loader
-        }) {
+        if selection_changed {
             if let Some(draft) = &mut self.draft_instance {
                 draft.loader_version = None;
             }
             self.request_instance_loader_versions(id);
         }
+        let can_save = self
+            .draft_instance
+            .as_ref()
+            .is_some_and(|draft| draft.loader == "vanilla" || draft.loader_version.is_some());
+        if runtime_changed && can_save {
+            if let Some(draft) = self.draft_instance.clone() {
+                self.save_instance_configuration(draft);
+            }
+        }
     }
 
-    fn save_instance_configuration(&mut self, draft: Instance, auto_save: bool) {
+    pub(crate) fn save_instance_configuration(&mut self, draft: Instance) {
         match serde_json::to_value(&draft) {
-            Ok(value) => self.call(
-                "instance.update",
-                value,
-                json!({"instanceId": draft.id, "autoSave": auto_save}),
-            ),
+            Ok(value) => self.call("instance.update", value, json!({"instanceId": draft.id})),
             Err(error) => {
                 self.notice = Some(self.trf("launch.save_error", &[("error", &error.to_string())]));
             }

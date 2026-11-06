@@ -405,11 +405,18 @@ impl MzApp {
             });
         if show_pagination {
             ui.add_space(crate::layout::CARD_LIST_GAP);
+            let previous_page = self.tr("action.previous_page");
+            let next_page = self.tr("action.next_page");
+            let page_button_size = egui::vec2(
+                crate::layout::button_width(ui, previous_page.clone())
+                    .max(crate::layout::button_width(ui, next_page.clone())),
+                ACTION_BUTTON_SIZE.y,
+            );
             ui.horizontal(|ui| {
                 if ui
                     .add_enabled(
                         self.modpack_browser.offset >= MODPACK_PAGE_SIZE,
-                        egui::Button::new(self.tr("action.previous_page")),
+                        egui::Button::new(previous_page).min_size(page_button_size),
                     )
                     .clicked()
                 {
@@ -429,7 +436,7 @@ impl MzApp {
                 if ui
                     .add_enabled(
                         self.modpack_browser.has_next,
-                        egui::Button::new(self.tr("action.next_page")),
+                        egui::Button::new(next_page).min_size(page_button_size),
                     )
                     .clicked()
                 {

@@ -166,19 +166,18 @@ impl MzApp {
         ui: &mut egui::Ui,
         name: &str,
         project: Option<&crate::model::ModProject>,
-    ) -> egui::Response {
+    ) {
         let texture = project.and_then(|project| {
             self.modpack_icons
                 .texture(ui.ctx(), &crate::app::modpack_icon_key(project))
         });
         if let Some(texture) = texture {
-            let (rect, response) = ui.allocate_exact_size(INSTANCE_ICON_SIZE, egui::Sense::hover());
+            let (rect, _) = ui.allocate_exact_size(INSTANCE_ICON_SIZE, egui::Sense::hover());
             egui::Image::new((texture.id(), INSTANCE_ICON_SIZE))
                 .corner_radius(egui::CornerRadius::same(8))
                 .paint_at(ui, rect);
-            response
         } else {
-            instance_icon(ui, name)
+            instance_icon(ui, name);
         }
     }
 
@@ -321,22 +320,14 @@ impl MzApp {
         );
         let installed = instance.install_status == "installed"
             || (instance.install_status == "incomplete" && project.is_some());
-        let card = crate::card_frame(ui).show(ui, |ui| {
+        crate::card_frame(ui).show(ui, |ui| {
             let width = ui.available_width();
             ui.set_min_width(width);
             ui.allocate_ui_with_layout(
                 egui::vec2(width, INSTANCE_ROW_CONTENT_HEIGHT),
                 egui::Layout::left_to_right(egui::Align::Center),
                 |ui| {
-                    let icon = self.paint_instance_icon(ui, &instance.name, project.as_ref());
-                    if self.instance_search.trim().is_empty() {
-                        let response = ui.interact(
-                            icon.rect,
-                            ui.id().with(("instance-drag-handle", &instance.id)),
-                            egui::Sense::drag(),
-                        );
-                        response.dnd_set_drag_payload(instance.id.clone());
-                    }
+                    self.paint_instance_icon(ui, &instance.name, project.as_ref());
                     let spacing = ui.spacing().item_spacing.x;
                     let action_count = 4 + usize::from(retry_job.is_some());
                     let action_count = action_count as f32;
@@ -470,37 +461,6 @@ impl MzApp {
                 },
             );
         });
-        if self.instance_search.trim().is_empty() {
-            if let Some(source) = card.response.dnd_release_payload::<String>() {
-                if source.as_str() != instance.id {
-                    self.reorder_instances(&source, &instance.id);
-                }
-            }
-        }
-    }
-
-    fn reorder_instances(&mut self, source: &str, target: &str) {
-        let ids = self
-            .instances
-            .iter()
-            .map(|instance| instance.id.clone())
-            .collect::<Vec<_>>();
-        let Some(ids) = Self::reordered_instance_ids(ids, source, target) else {
-            return;
-        };
-        self.call("instance.reorder", json!({"ids": ids}), Value::Null);
-    }
-
-    fn reordered_instance_ids(
-        mut ids: Vec<String>,
-        source: &str,
-        target: &str,
-    ) -> Option<Vec<String>> {
-        let source_index = ids.iter().position(|id| id == source)?;
-        let id = ids.remove(source_index);
-        let target_index = ids.iter().position(|id| id == target)?;
-        ids.insert(target_index, id);
-        Some(ids)
     }
 
     fn delete_dialog(&mut self) {
@@ -703,8 +663,8 @@ fn select_displayed_installation_job<'a>(
     })
 }
 
-fn instance_icon(ui: &mut egui::Ui, name: &str) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(INSTANCE_ICON_SIZE, egui::Sense::hover());
+fn instance_icon(ui: &mut egui::Ui, name: &str) {
+    let (rect, _) = ui.allocate_exact_size(INSTANCE_ICON_SIZE, egui::Sense::hover());
     let (grass, dirt) = instance_colors(name);
     ui.painter().rect(
         rect,
@@ -723,7 +683,6 @@ fn instance_icon(ui: &mut egui::Ui, name: &str) -> egui::Response {
         egui::Stroke::NONE,
         egui::StrokeKind::Inside,
     );
-    response
 }
 
 fn format_last_launch(value: Option<&str>) -> String {
@@ -877,27 +836,6 @@ mod tests {
             retry_modpack_job(&[incomplete, complete], "instance-1").map(|job| job.id.as_str()),
             Some("incomplete-job")
         );
-    }
-
-    #[test]
-    fn instance_reorder_moves_source_before_target_in_both_directions() {
-        let ids = || vec!["a".to_owned(), "b".to_owned(), "c".to_owned()];
-        assert_eq!(
-            MzApp::reordered_instance_ids(ids(), "a", "c"),
-            Some(vec!["b".to_owned(), "a".to_owned(), "c".to_owned()])
-        );
-        assert_eq!(
-            MzApp::reordered_instance_ids(ids(), "c", "a"),
-            Some(vec!["c".to_owned(), "a".to_owned(), "b".to_owned()])
-        );
-    }
-
-    #[test]
-    fn instance_reorder_rejects_same_or_missing_cards() {
-        let ids = || vec!["a".to_owned(), "b".to_owned()];
-        assert_eq!(MzApp::reordered_instance_ids(ids(), "a", "a"), None);
-        assert_eq!(MzApp::reordered_instance_ids(ids(), "a", "missing"), None);
-        assert_eq!(MzApp::reordered_instance_ids(ids(), "missing", "a"), None);
     }
 
     #[test]

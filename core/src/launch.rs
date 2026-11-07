@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -214,11 +214,7 @@ impl LaunchService {
             }
         }
         libraries.push(client);
-        let classpath = libraries
-            .iter()
-            .map(|path| path.to_string_lossy().into_owned())
-            .collect::<Vec<_>>()
-            .join(if cfg!(windows) { ";" } else { ":" });
+        let classpath = join_classpath(&libraries);
         let assets_root = self.paths.content.join("assets");
         let asset_index = version
             .asset_index
@@ -521,6 +517,16 @@ impl LaunchService {
     }
 }
 
+fn join_classpath(libraries: &[PathBuf]) -> String {
+    let mut seen = HashSet::new();
+    libraries
+        .iter()
+        .filter(|path| seen.insert(path.as_path()))
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join(if cfg!(windows) { ";" } else { ":" })
+}
+
 fn resolve_arguments(
     arguments: &[ArgumentValue],
     placeholders: &BTreeMap<String, String>,
@@ -654,6 +660,29 @@ mod tests {
         assert!(!can_launch(crate::model::InstallStatus::Incomplete, false));
         assert!(can_launch(crate::model::InstallStatus::Incomplete, true));
         assert!(!can_launch(crate::model::InstallStatus::NotInstalled, true));
+    }
+
+    #[test]
+    fn classpath_removes_duplicate_paths_and_preserves_order() {
+        let gson = PathBuf::from("libraries/com/google/code/gson/gson/2.10.1/gson-2.10.1.jar");
+        let libraries = vec![
+            PathBuf::from("libraries/cpw/mods/bootstraplauncher.jar"),
+            gson.clone(),
+            gson,
+            PathBuf::from("libraries/com/google/code/gson/gson/2.11.0/gson-2.11.0.jar"),
+            PathBuf::from("versions/1.21.1/1.21.1.jar"),
+        ];
+        let separator = if cfg!(windows) { ";" } else { ":" };
+        assert_eq!(
+            join_classpath(&libraries),
+            [
+                "libraries/cpw/mods/bootstraplauncher.jar",
+                "libraries/com/google/code/gson/gson/2.10.1/gson-2.10.1.jar",
+                "libraries/com/google/code/gson/gson/2.11.0/gson-2.11.0.jar",
+                "versions/1.21.1/1.21.1.jar",
+            ]
+            .join(separator)
+        );
     }
 
     #[test]

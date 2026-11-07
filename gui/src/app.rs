@@ -799,17 +799,13 @@ impl MzApp {
                 }
             }
             "game" => {
-                if let (Some(id), Some(status)) = (
-                    data.get("instanceId").and_then(Value::as_str),
-                    data.get("status").and_then(Value::as_str),
-                ) {
-                    self.games.insert(id.to_owned(), status.to_owned());
+                if apply_game_event(&mut self.games, &data) {
                     self.refresh_instances();
                 }
             }
             "log" => {
                 if let (Some(id), Some(line)) = (
-                    data.get("instanceId").and_then(Value::as_str),
+                    event_instance_id(&data),
                     data.get("line").and_then(Value::as_str),
                 ) {
                     let logs = self.logs.entry(id.to_owned()).or_default();
@@ -1331,6 +1327,24 @@ fn restored_modpack_installs(jobs: &[Job]) -> Vec<InstallingModpack> {
     installs
 }
 
+fn event_instance_id(data: &Value) -> Option<&str> {
+    data.get("instanceId")
+        .or_else(|| data.get("instance_id"))
+        .and_then(Value::as_str)
+}
+
+fn apply_game_event(games: &mut HashMap<String, String>, data: &Value) -> bool {
+    if let (Some(id), Some(status)) = (
+        event_instance_id(data),
+        data.get("status").and_then(Value::as_str),
+    ) {
+        games.insert(id.to_owned(), status.to_owned());
+        true
+    } else {
+        false
+    }
+}
+
 fn parse_list<T: serde::de::DeserializeOwned>(value: Value) -> Vec<T> {
     serde_json::from_value(value).unwrap_or_default()
 }
@@ -1518,6 +1532,23 @@ pub fn modpack_icon_key(project: &ModProject) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn game_exit_event_replaces_running_state() {
+        let mut games = HashMap::from([("instance-1".to_owned(), "running".to_owned())]);
+        assert!(apply_game_event(
+            &mut games,
+            &json!({"instance_id": "instance-1", "status": "stopped"})
+        ));
+        assert_eq!(games["instance-1"], "stopped");
+
+        games.insert("instance-1".into(), "running".into());
+        assert!(apply_game_event(
+            &mut games,
+            &json!({"instanceId": "instance-1", "status": "stopped"})
+        ));
+        assert_eq!(games["instance-1"], "stopped");
+    }
 
     #[test]
     fn current_modpack_version_preserves_provider_order() {
